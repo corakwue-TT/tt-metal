@@ -1817,7 +1817,7 @@ PERF_TEST_SCHEMAS_QSR = {
         "test_name_aliases": {"perf_reduce_quasar": "perf_reduce_quasar"},
     },
     "perf_sfpu_add_parallel_matmul_quasar": {
-        "version": 2,
+        "version": 3,
         "columns": [
             "c_dimm",
             "dest_acc",
@@ -1834,11 +1834,13 @@ PERF_TEST_SCHEMAS_QSR = {
             "k_dimm",
             "loop_factor",
             "marker",
+            "mathop",
             "math_fidelity",
             "num_faces",
             "num_faces_A",
             "num_faces_B",
             "r_dimm",
+            "sfpu_impl",
             "tile_cnt",
             "unpack_to_dest",
             "unpack_transpose_faces",
@@ -1849,7 +1851,7 @@ PERF_TEST_SCHEMAS_QSR = {
         },
     },
     "perf_sfpu_exp_parallel_matmul_quasar": {
-        "version": 5,
+        "version": 6,
         "columns": [
             "approx_mode",
             "c_dimm",
@@ -1868,6 +1870,7 @@ PERF_TEST_SCHEMAS_QSR = {
             "loop_factor",
             "marker",
             "math_fidelity",
+            "mathop",
             "num_faces",
             "num_faces_A",
             "num_faces_B",
