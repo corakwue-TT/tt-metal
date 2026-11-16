@@ -21,7 +21,7 @@ Boxes (_BOX, from the device count and TT_MESH_GRAPH_DESC_PATH):
 test_sparse_mla_perf: the CI gate. Warm and long with the production scaled-FP8 KVPE cache (SPxTP-sharded), for
 GATE_CASES: K3.1 (last DSA layer's slot of 24, at
 K3.1's packet size), GLM-5.3 (last full indexer layer) and a GLM-5.3 shared layer (no indexer; reuses that layer's
-top-k). Untraced: fastest of UNTRACED_SAMPLES calls after UNTRACED_WARMUP discarded ones. Traced: one timed replay of
+top-k). Untraced: fastest of SAMPLES calls after WARMUP discarded ones (tests/measure). Traced: one timed replay of
 the captured trace. Each (case, box, scenario, mode) is gated two-sided against PERF_TARGETS_MS ± PERF_MARGIN[mode] (a
 case without targets only reports), and the traced output must match the untraced one (one extra untimed run of each,
 for triage, plus one untimed eager forward with a per-op host profile). Each layer runs standalone (no next-layer KV
@@ -54,6 +54,9 @@ from models.demos.deepseek_v3_d_p.tests.fabric_profiles import (
     torus_x_device_params,
     torus_xy_device_params,
 )
+from models.demos.deepseek_v3_d_p.tests.measure.gate import TRACED_MARGIN, UNTRACED_MARGIN, PerfReport, PerfTarget
+from models.demos.deepseek_v3_d_p.tests.measure.timing import Probe, time_untraced
+from models.demos.deepseek_v3_d_p.tests.measure.trace import TracedStep, time_traced
 from models.demos.deepseek_v3_d_p.tests.sparse_mla.sparse_mla_mesh import detect_num_devices
 from models.demos.deepseek_v3_d_p.tests.sparse_mla.sparse_mla_reference import make_hidden
 from models.demos.deepseek_v3_d_p.tt.mla import ttMLA
@@ -63,8 +66,7 @@ from models.demos.deepseek_v3_d_p.tt.tt_ccl import per_axis_topology
 from models.demos.deepseek_v3_d_p.utils.kv_cache_utils import MlaKvCacheFormat, init_kvpe_cache, init_mla_kv_cache
 from models.demos.deepseek_v3_d_p.utils.prefill_summary_utils import emit_perf_metrics
 from models.demos.deepseek_v3_d_p.utils.smbus_telemetry import require_high_power
-from models.demos.deepseek_v3_d_p.utils.sub_device_trace import SubDeviceTraceController
-from tt_py_test_utils_common.perf.cpu_clock import current_cpu, hold_full_cpu_clock
+from tt_py_test_utils_common.perf.cpu_clock import hold_full_cpu_clock
 
 GALAXY_SP = 8
 # Galaxy-global scenario sizes: a 5k chunk over a 50k (warm) or 500k (long) cache. A 4x4 stage runs 2.5k chunks.
@@ -73,8 +75,6 @@ STAGE_4X4_CHUNK_TOKENS = 2560
 WARM_CACHE_TOKENS = 51200
 LONG_CACHE_TOKENS = 512000
 # Untraced: discarded calls (the first compiles), then timed calls, each through sync; the gate takes the fastest.
-UNTRACED_WARMUP = 10
-UNTRACED_SAMPLES = 10
 SCENARIO_CACHE_TOKENS = {"warm": WARM_CACHE_TOKENS, "long": LONG_CACHE_TOKENS}
 MODES = ("untraced", "traced")
 # Gate cases: (variant, shared_layer). GLM-5.3 also gates a shared layer, which reuses a full layer's top-k and runs
@@ -117,9 +117,8 @@ PERF_TARGETS_MS = {
     for case, row in rows.items()
     for (scenario, mode), ms in zip([(s, m) for s in SCENARIO_CACHE_TOKENS for m in MODES], row)
 }
-# Both modes are gated two-sided. Untraced is host-bound and takes the fastest of UNTRACED_SAMPLES calls, so it gets the
-# wider band.
-PERF_MARGIN = {"untraced": 0.05, "traced": 0.03}
+# Both modes are gated two-sided. Untraced is host-bound and takes the fastest sample, so it gets the wider band.
+PERF_MARGIN = {"untraced": UNTRACED_MARGIN, "traced": TRACED_MARGIN}
 # Traced output must match the untraced output of the same forward.
 TRACE_PCC = 0.9999
 CI_RUN = os.environ.get("CI") == "true"
@@ -462,40 +461,38 @@ def _vmstat():
         return {}
 
 
-def _time_untraced(mesh_device, case, start, cpus=None, repeat=None, enqueue=None, host=None):
-    """Host ms of each timed eager forward through sync, and the last timed forward's per-device output. Appends the CPU
-    the main thread ran on after each sample to `cpus`, the ms until forward() returned (before the sync) to `enqueue`,
-    per-sample host counters to `host` (process minor faults during enqueue and during the sync, involuntary context
-    switches, and /proc/vmstat compaction/THP deltas), and the output of one more, untimed forward to `repeat`, if
-    given."""
-    for _ in range(UNTRACED_WARMUP):  # the first call compiles
-        ttnn.deallocate(case.forward(start))
-        ttnn.synchronize_device(mesh_device)
-    samples = []
-    for i in range(UNTRACED_SAMPLES):
-        if host is not None:
-            vm0, (f0, c0) = _vmstat(), _rusage()
-        t0 = time.perf_counter()
-        out = case.forward(start)
-        t1 = time.perf_counter()
-        if host is not None:
-            f1, _ = _rusage()  # outside the enqueue window, ~1 us inside the total one
-        ttnn.synchronize_device(mesh_device)
-        samples.append((time.perf_counter() - t0) * 1e3)
-        if host is not None:
-            (f2, c2), vm2 = _rusage(), _vmstat()
-            if vm0 and vm2:
-                vm = " ".join(f"{k}={vm2[k] - vm0[k]}" for k in sorted(vm0.keys() & vm2.keys()) if vm2[k] != vm0[k])
-            else:
-                vm = "vmstat unavailable"
-            host.append(f"{f1 - f0}/{f2 - f1}/{c2 - c0}" + (f" {vm}" if vm else ""))
-        if enqueue is not None:
-            enqueue.append((t1 - t0) * 1e3)
-        if cpus is not None:
-            cpus.append(current_cpu())
-        if i == UNTRACED_SAMPLES - 1:
-            reference = _device_tensors(out)
-        ttnn.deallocate(out)
+class _HostProbe(Probe):
+    """Per-sample host counters: process minor faults during enqueue and during the sync, involuntary context
+    switches, and /proc/vmstat compaction/THP deltas."""
+
+    def __init__(self):
+        self.lines = []
+
+    def before(self):
+        self.vm0, (self.f0, self.c0) = _vmstat(), _rusage()
+
+    def enqueued(self):
+        self.f1, _ = _rusage()  # outside the enqueue window, ~1 us inside the total one
+
+    def after(self):
+        (f2, c2), vm2 = _rusage(), _vmstat()
+        if self.vm0 and vm2:
+            vm = " ".join(
+                f"{k}={vm2[k] - self.vm0[k]}" for k in sorted(self.vm0.keys() & vm2.keys()) if vm2[k] != self.vm0[k]
+            )
+        else:
+            vm = "vmstat unavailable"
+        self.lines.append(f"{self.f1 - self.f0}/{f2 - self.f1}/{c2 - self.c0}" + (f" {vm}" if vm else ""))
+
+
+def _time_untraced(mesh_device, case, start, probe=None, repeat=None):
+    """Untraced samples (perf gate defaults) and the last timed forward's per-device output; appends one more, untimed
+    forward's output to `repeat`, if given."""
+    samples, out = time_untraced(
+        lambda: case.forward(start), lambda: ttnn.synchronize_device(mesh_device), probe=probe, keep_last=True
+    )
+    reference = _device_tensors(out)
+    ttnn.deallocate(out)
     if repeat is not None:
         out = case.forward(start)
         repeat.append(_device_tensors(out))
@@ -544,40 +541,21 @@ def _op_host_profile(mesh_device, case, start, top=12):
 
 
 def _time_traced(mesh_device, case, start, repeat=None):
-    """Host ms of one segmented trace replay (it ends in a device sync), and the trace's output. If `repeat` is given,
-    replays once more, untimed, and appends that replay's output to it."""
-    controller = SubDeviceTraceController(mesh_device)
-    case.mla.set_trace_controller(controller)
-    capture_out, capturing = None, False
-    try:
-        ttnn.deallocate(case.forward(start))  # compile under the controller
-        ttnn.synchronize_device(mesh_device)
-        controller.begin_capture()
-        capturing = True
-        capture_out = case.forward(start)
-        controller.end_capture()
-        capturing = False
-        ttnn.synchronize_device(mesh_device)
-        t0 = time.perf_counter()
-        controller.replay()
-        elapsed_ms = (time.perf_counter() - t0) * 1e3
-        out = _device_tensors(capture_out)
+    """One timed replay (perf gate default) and the trace's per-device output; replays once more, untimed, into `repeat`,
+    if given."""
+    with TracedStep(
+        mesh_device,
+        lambda: case.forward(start),
+        attach=case.mla.set_trace_controller,
+        detach=lambda: case.mla.set_trace_controller(None),
+    ) as traced:
+        traced.capture()
+        samples = time_traced(traced)
+        out = _device_tensors(traced.output)
         if repeat is not None:
-            controller.replay()
-            repeat.append(_device_tensors(capture_out))
-        return [elapsed_ms], out
-    finally:
-        if capturing:
-            try:
-                controller.end_capture()
-            except Exception:
-                pass
-        try:
-            controller.release()
-        finally:
-            case.mla.set_trace_controller(None)
-            if capture_out is not None:
-                ttnn.deallocate(capture_out)
+            traced.replay()
+            repeat.append(_device_tensors(traced.output))
+        return samples, out
 
 
 @skip_with_llk_assert("LLK assertions perturb kernel timing")
@@ -612,16 +590,17 @@ def test_sparse_mla_perf(request, mesh_device, device_params, variant, case_name
     request.addfinalizer(clock.restore)
     print(f"{label} host: {clock.status}")
     samples = {}
-    cpus = []
     eager_repeat, traced_repeat = [], []
-    enqueue, host = [], []
+    probe = _HostProbe()
     thp_before = _thp_state()
-    samples["untraced"], eager_out = _time_untraced(mesh_device, case, start, cpus, eager_repeat, enqueue, host)
-    print(f"{label} host: {_host_state()}; untraced sample CPUs {' '.join(map(str, cpus))}")
-    print(f"{label} untraced enqueue (forward() returns, ms): {' '.join(f'{x:.3f}' for x in enqueue)}")
+    samples["untraced"], eager_out = _time_untraced(mesh_device, case, start, probe, eager_repeat)
+    print(f"{label} host: {_host_state()}; untraced sample CPUs {' '.join(map(str, samples['untraced'].cpus))}")
+    print(
+        f"{label} untraced enqueue (forward() returns, ms): {' '.join(f'{x:.3f}' for x in samples['untraced'].enqueue_ms)}"
+    )
     print(
         f"{label} untraced host per sample (process-wide minor faults in enqueue/sync, involuntary ctx switches; "
-        f"system-wide vmstat deltas; windows approximate): {' | '.join(host)}; "
+        f"system-wide vmstat deltas; windows approximate): {' | '.join(probe.lines)}; "
         f"before: {thp_before}; after: {_thp_state()}"
     )
     print(f"{label} untraced op profile: {_op_host_profile(mesh_device, case, start)}")
@@ -632,26 +611,16 @@ def test_sparse_mla_perf(request, mesh_device, device_params, variant, case_name
 
     trace_pcc = min_pcc(eager_out, traced_out)
 
-    failures, unmeasured = [], []
-    for mode in MODES:
-        measured_ms = min(samples[mode])
-        target_ms = PERF_TARGETS_MS.get((case_name, box, scenario, mode))
-        margin = PERF_MARGIN[mode]
-        within = target_ms is not None and abs(measured_ms - target_ms) <= target_ms * margin
-        print(  # print, not logger: CI runs perf jobs at LOGURU_LEVEL=ERROR
-            f"{label} {mode}: {measured_ms:.3f} ms "
-            f"(max {max(samples[mode]):.3f}); target {target_ms} ms ±{margin:.0%}; "
-            f"samples {' '.join(f'{x:.3f}' for x in samples[mode])}"
-        )
+    def emit(result):
         emit_perf_metrics(
-            f"{case_name.replace('-', '_')}_sparse_mla_{box.lower().replace(' ', '_')}_{scenario}_{mode}",
-            f"{label} ({mode})",
+            f"{case_name.replace('-', '_')}_sparse_mla_{box.lower().replace(' ', '_')}_{scenario}_{result.mode}",
+            f"{label} ({result.mode})",
             {
                 "box": box,
                 "mesh": f"{_BOX.mesh[0]}x{_BOX.mesh[1]}",
                 "sp_axis": _BOX.sp_axis,
                 "scenario": scenario,
-                "mode": mode,
+                "mode": result.mode,
                 "chunk_tokens": chunk,
                 "cache_tokens": cache,
                 "fabric": device_params["fabric_config"].name,
@@ -660,32 +629,28 @@ def test_sparse_mla_perf(request, mesh_device, device_params, variant, case_name
                 ),
                 "kv_cache_format": "scaled_fp8",
                 "weights": "random",
-                "samples_ms": samples[mode],
-                "measured_ms": measured_ms,
-                "target_ms": target_ms,
-                "margin_pct": margin * 100.0,
-                "within_band": within,
+                "samples_ms": result.samples.values,
+                "measured_ms": result.measured,
+                "target_ms": result.target.ms,
+                "margin_pct": result.target.margin * 100.0,
+                "within_band": result.within,
             },
         )
-        if target_ms is None:
-            unmeasured.append(f"{mode} {measured_ms:.3f} ms")
-        elif not within:
-            lower, upper = target_ms * (1 - margin), target_ms * (1 + margin)
-            direction = "faster than the target, re-centre it" if measured_ms < lower else "slower than the target"
-            failures.append(
-                f"{mode}: {measured_ms:.3f} ms outside [{lower:.3f}, {upper:.3f}] "
-                f"(target {target_ms:.3f} ms ±{margin:.0%}); {direction}"
-            )
+
+    report = PerfReport(label, emit)
+    for mode in MODES:
+        report.add(
+            mode, samples[mode], PerfTarget(PERF_TARGETS_MS.get((case_name, box, scenario, mode)), PERF_MARGIN[mode])
+        )
+    correctness = []
     if trace_pcc < TRACE_PCC:
         # Within-mode repeatability, for triage: if both pairs match, that suggests a consistent eager/trace
         # discrepancy; a pair that does not match means that mode failed this repeatability check.
-        failures.append(
+        correctness.append(
             f"traced output differs from untraced: min per-device PCC {trace_pcc:.6f} (eager vs eager "
             f"{min_pcc(eager_repeat[0], eager_out):.6f}, replay vs replay {min_pcc(traced_repeat[0], traced_out):.6f})"
         )
-    assert not failures, f"{label}: " + "; ".join(failures)
-    if unmeasured:  # report-only until this case has targets on this box
-        pytest.skip(f"{label}: no targets yet; measured " + ", ".join(unmeasured))
+    report.finish(correctness)
 
 
 # ============================================================================
