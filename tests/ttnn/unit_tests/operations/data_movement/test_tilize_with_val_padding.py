@@ -1114,3 +1114,51 @@ def test_tilize_with_val_padding_wide_row_dram_width_sharded(device):
 
     assert tt_tile.layout == ttnn.TILE_LAYOUT
     assert torch.equal(torch_tensor, ttnn.to_torch(tt_tile))
+
+
+_TILIZE_VAL_MODULES = {"ttnn": ttnn, "quasar": ttnn.experimental.quasar}
+
+
+def _tilize_val_entry(module, entry, tensor):
+    shape = list(tensor.shape)
+    padded = shape[:-2] + [max(32, -(-shape[-2] // 32) * 32), max(32, -(-shape[-1] // 32) * 32)]
+    if entry == "val_padding_list":
+        return module.tilize_with_val_padding(tensor, padded, 0.0)
+    if entry == "val_padding_shape":
+        return module.tilize_with_val_padding(tensor, ttnn.Shape(padded), 0.0)
+    return module.tilize_with_zero_padding(tensor)
+
+
+@pytest.mark.parametrize("module_name", list(_TILIZE_VAL_MODULES))
+@pytest.mark.parametrize("entry", ["val_padding_list", "val_padding_shape", "zero_padding"])
+@pytest.mark.parametrize("input_kind", ["host", "deallocated"])
+@pytest.mark.parametrize("shape", [(1, 1, 0, 32), (1, 1, 30, 32)], ids=["empty", "non_empty"])
+def test_tilize_with_val_padding_rejects_input_not_on_device(
+    module_name, entry, input_kind, shape, device, expect_error
+):
+    """A host or deallocated ROW_MAJOR input raises the device op's error instead of crashing.
+
+    The empty-tensor branch used to build its output from input_tensor.device(), which is null for these inputs.
+    """
+    torch_input = torch.zeros(shape, dtype=torch.bfloat16)
+    if input_kind == "host":
+        tensor = ttnn.from_torch(torch_input, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
+        message = "Operands need to be on device"
+    else:
+        tensor = ttnn.from_torch(torch_input, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
+        ttnn.deallocate(tensor)
+        message = "Operands need to be allocated in buffers on device"
+    with expect_error(RuntimeError, message):
+        _tilize_val_entry(_TILIZE_VAL_MODULES[module_name], entry, tensor)
+
+
+@pytest.mark.parametrize("module_name", list(_TILIZE_VAL_MODULES))
+@pytest.mark.parametrize("entry", ["val_padding_shape", "zero_padding"])
+def test_tilize_with_val_padding_returns_host_tile_input(module_name, entry):
+    """A TILE input is already tiled and comes back as is, so a host TILE input needs no device."""
+    torch_input = torch.randn((1, 1, 32, 32), dtype=torch.bfloat16)
+    tensor = ttnn.from_torch(torch_input, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT)
+    output = _tilize_val_entry(_TILIZE_VAL_MODULES[module_name], entry, tensor)
+    assert output.storage_type() == ttnn.StorageType.HOST
+    assert output.layout == ttnn.TILE_LAYOUT
+    assert torch.equal(ttnn.to_torch(output), torch_input)
