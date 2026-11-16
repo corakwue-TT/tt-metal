@@ -259,7 +259,7 @@ KBlock choose_k_block(uint32_t Kt, uint64_t budget, uint32_t kb_max, const Geo& 
 }
 
 GridChoice choose_grid(uint32_t gx, uint32_t gy, uint32_t block_m, uint32_t block_n, uint32_t L) {
-    std::optional<std::pair<std::tuple<bool, uint64_t, int64_t, uint64_t, uint64_t, bool>, GridChoice>> best;
+    std::optional<std::pair<std::tuple<uint64_t, bool, int64_t, uint64_t, uint64_t, bool>, GridChoice>> best;
     for (Strip strip : {Strip::Row, Strip::Col}) {
         const uint32_t strip_len = strip == Strip::Row ? gx : gy;
         if (2 * L > strip_len) {
@@ -280,9 +280,10 @@ GridChoice choose_grid(uint32_t gx, uint32_t gy, uint32_t block_m, uint32_t bloc
             c.subblock = choose_subblock(c.core_m, c.core_n);
             const uint64_t ragged =
                 (uint64_t{c.grid_m} * c.core_m * c.grid_n * c.core_n) - (uint64_t{block_m} * block_n);
+            // Fewest tiles per core first, then the row strip.
             const auto key = std::make_tuple(
-                strip != Strip::Row,
                 uint64_t{c.core_m} * c.core_n,
+                strip != Strip::Row,
                 -static_cast<int64_t>(c.subblock[0] * c.subblock[1]),
                 ragged,
                 uint64_t{c.grid_m} * c.grid_n,
