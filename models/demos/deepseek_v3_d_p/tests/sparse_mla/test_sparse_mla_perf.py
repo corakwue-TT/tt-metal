@@ -22,7 +22,7 @@ test_sparse_mla_perf: the CI gate. Warm and long with the production scaled-FP8 
 GATE_CASES: K3.1 (last DSA layer's slot of 24, at
 K3.1's packet size), GLM-5.3 (last full indexer layer) and a GLM-5.3 shared layer (no indexer; reuses that layer's
 top-k). Untraced: fastest of SAMPLES calls after WARMUP discarded ones (tests/measure). Traced: one timed replay of
-the captured trace. Each (case, box, scenario, mode) is gated two-sided against PERF_TARGETS_MS ± PERF_MARGIN[mode] (a
+the captured trace. Each (case, box, scenario, mode) is gated two-sided against PERF_TARGETS_MS ± MARGIN[mode] (a
 case without targets only reports), and the traced output must match the untraced one (one extra untimed run of each,
 for triage, plus one untimed eager forward with a per-op host profile). Each layer runs standalone (no next-layer KV
 prefetch overlapped with its attention); the shared layer reuses its push plan, as it would inside a stage.
@@ -35,7 +35,6 @@ scaled-FP8 cache / dense ring-MLA baseline. Narrow with -k, e.g. -k "glm_5_3 and
 import copy
 import gc
 import os
-import resource
 import time
 from dataclasses import dataclass
 from fractions import Fraction
@@ -54,8 +53,8 @@ from models.demos.deepseek_v3_d_p.tests.fabric_profiles import (
     torus_x_device_params,
     torus_xy_device_params,
 )
-from models.demos.deepseek_v3_d_p.tests.measure.gate import TRACED_MARGIN, UNTRACED_MARGIN, PerfReport, PerfTarget
-from models.demos.deepseek_v3_d_p.tests.measure.timing import Probe, time_untraced
+from models.demos.deepseek_v3_d_p.tests.measure.gate import MARGIN, band_failure, gate
+from models.demos.deepseek_v3_d_p.tests.measure.timing import time_untraced
 from models.demos.deepseek_v3_d_p.tests.measure.trace import TracedStep, time_traced
 from models.demos.deepseek_v3_d_p.tests.sparse_mla.sparse_mla_mesh import detect_num_devices
 from models.demos.deepseek_v3_d_p.tests.sparse_mla.sparse_mla_reference import make_hidden
@@ -117,8 +116,6 @@ PERF_TARGETS_MS = {
     for case, row in rows.items()
     for (scenario, mode), ms in zip([(s, m) for s in SCENARIO_CACHE_TOKENS for m in MODES], row)
 }
-# Both modes are gated two-sided. Untraced is host-bound and takes the fastest sample, so it gets the wider band.
-PERF_MARGIN = {"untraced": UNTRACED_MARGIN, "traced": TRACED_MARGIN}
 # Traced output must match the untraced output of the same forward.
 TRACE_PCC = 0.9999
 CI_RUN = os.environ.get("CI") == "true"
@@ -396,100 +393,11 @@ def _device_tensors(tensor):
     return [ttnn.to_torch(t) for t in ttnn.get_device_tensors(tensor)]
 
 
-def _cpu_ranges(cpus):
-    out, run = [], []
-    for cpu in cpus:
-        if run and cpu != run[-1] + 1:
-            out.append(run)
-            run = []
-        run.append(cpu)
-    if run:
-        out.append(run)
-    return ",".join(f"{r[0]}-{r[-1]}" if len(r) > 1 else f"{r[0]}" for r in out)
-
-
-def _host_state():
-    try:
-        affinity = sorted(os.sched_getaffinity(0))
-        return (
-            f"{len(affinity)} CPUs allowed ({_cpu_ranges(affinity)}), {os.cpu_count()} online, "
-            f"load {os.getloadavg()[0]:.1f}"
-        )
-    except OSError as e:
-        return f"unavailable ({e})"
-
-
-def _thp_state():
-    """Transparent huge page settings and this process's anonymous huge-page memory: a CI diagnostic."""
-    out = []
-    for name in ("enabled", "defrag"):
-        try:
-            with open(f"/sys/kernel/mm/transparent_hugepage/{name}") as f:
-                out.append(f"thp {name} {f.read().strip()}")
-        except OSError:
-            pass
-    try:
-        with open("/proc/self/smaps_rollup") as f:
-            kib = {}
-            for line in f:
-                key, _, value = line.partition(":")
-                if value.split():
-                    kib[key] = value.split()[0]
-        rss, huge = (int(kib.get(k, -1024)) // 1024 for k in ("Rss", "AnonHugePages"))
-        out.append(f"rss {rss} MiB, anon huge {huge} MiB")
-    except Exception:
-        pass
-    return "; ".join(out)
-
-
-_VMSTAT_KEYS = ("compact_stall", "compact_fail", "thp_fault_alloc", "thp_fault_fallback", "thp_collapse_alloc")
-
-
-def _rusage():
-    """(minor faults, involuntary context switches) of the whole process, all threads."""
-    ru = resource.getrusage(resource.RUSAGE_SELF)
-    return ru.ru_minflt, ru.ru_nivcsw
-
-
-def _vmstat():
-    """System-wide compaction and THP allocation counters (/proc/vmstat), or {} if unavailable."""
-    try:
-        with open("/proc/vmstat") as f:
-            pairs = (line.split() for line in f)
-            return {k: int(v) for k, v, *_ in pairs if k in _VMSTAT_KEYS}
-    except Exception:
-        return {}
-
-
-class _HostProbe(Probe):
-    """Per-sample host counters: process minor faults during enqueue and during the sync, involuntary context
-    switches, and /proc/vmstat compaction/THP deltas."""
-
-    def __init__(self):
-        self.lines = []
-
-    def before(self):
-        self.vm0, (self.f0, self.c0) = _vmstat(), _rusage()
-
-    def enqueued(self):
-        self.f1, _ = _rusage()  # outside the enqueue window, ~1 us inside the total one
-
-    def after(self):
-        (f2, c2), vm2 = _rusage(), _vmstat()
-        if self.vm0 and vm2:
-            vm = " ".join(
-                f"{k}={vm2[k] - self.vm0[k]}" for k in sorted(self.vm0.keys() & vm2.keys()) if vm2[k] != self.vm0[k]
-            )
-        else:
-            vm = "vmstat unavailable"
-        self.lines.append(f"{self.f1 - self.f0}/{f2 - self.f1}/{c2 - self.c0}" + (f" {vm}" if vm else ""))
-
-
-def _time_untraced(mesh_device, case, start, probe=None, repeat=None):
-    """Untraced samples (perf gate defaults) and the last timed forward's per-device output; appends one more, untimed
-    forward's output to `repeat`, if given."""
+def _time_untraced(mesh_device, case, start, repeat=None):
+    """Untraced samples (ms) and the last timed forward's per-device output; appends one more, untimed forward's
+    output to `repeat`, if given."""
     samples, out = time_untraced(
-        lambda: case.forward(start), lambda: ttnn.synchronize_device(mesh_device), probe=probe, keep_last=True
+        lambda: case.forward(start), lambda: ttnn.synchronize_device(mesh_device), keep_last=True
     )
     reference = _device_tensors(out)
     ttnn.deallocate(out)
@@ -541,8 +449,7 @@ def _op_host_profile(mesh_device, case, start, top=12):
 
 
 def _time_traced(mesh_device, case, start, repeat=None):
-    """One timed replay (perf gate default) and the trace's per-device output; replays once more, untimed, into `repeat`,
-    if given."""
+    """One timed replay (ms) and the trace's per-device output; replays once more, untimed, into `repeat`, if given."""
     with TracedStep(
         mesh_device,
         lambda: case.forward(start),
@@ -591,18 +498,7 @@ def test_sparse_mla_perf(request, mesh_device, device_params, variant, case_name
     print(f"{label} host: {clock.status}")
     samples = {}
     eager_repeat, traced_repeat = [], []
-    probe = _HostProbe()
-    thp_before = _thp_state()
-    samples["untraced"], eager_out = _time_untraced(mesh_device, case, start, probe, eager_repeat)
-    print(f"{label} host: {_host_state()}; untraced sample CPUs {' '.join(map(str, samples['untraced'].cpus))}")
-    print(
-        f"{label} untraced enqueue (forward() returns, ms): {' '.join(f'{x:.3f}' for x in samples['untraced'].enqueue_ms)}"
-    )
-    print(
-        f"{label} untraced host per sample (process-wide minor faults in enqueue/sync, involuntary ctx switches; "
-        f"system-wide vmstat deltas; windows approximate): {' | '.join(probe.lines)}; "
-        f"before: {thp_before}; after: {_thp_state()}"
-    )
+    samples["untraced"], eager_out = _time_untraced(mesh_device, case, start, eager_repeat)
     print(f"{label} untraced op profile: {_op_host_profile(mesh_device, case, start)}")
     samples["traced"], traced_out = _time_traced(mesh_device, case, start, traced_repeat)
 
@@ -610,17 +506,19 @@ def test_sparse_mla_perf(request, mesh_device, device_params, variant, case_name
         return min(comp_pcc(a, b, TRACE_PCC)[1] for a, b in zip(xs, ys))
 
     trace_pcc = min_pcc(eager_out, traced_out)
-
-    def emit(result):
+    results = {}
+    for mode in MODES:
+        measured, target = min(samples[mode]), PERF_TARGETS_MS.get((case_name, box, scenario, mode))
+        results[mode] = (samples[mode], measured, target, MARGIN[mode])
         emit_perf_metrics(
-            f"{case_name.replace('-', '_')}_sparse_mla_{box.lower().replace(' ', '_')}_{scenario}_{result.mode}",
-            f"{label} ({result.mode})",
+            f"{case_name.replace('-', '_')}_sparse_mla_{box.lower().replace(' ', '_')}_{scenario}_{mode}",
+            f"{label} ({mode})",
             {
                 "box": box,
                 "mesh": f"{_BOX.mesh[0]}x{_BOX.mesh[1]}",
                 "sp_axis": _BOX.sp_axis,
                 "scenario": scenario,
-                "mode": result.mode,
+                "mode": mode,
                 "chunk_tokens": chunk,
                 "cache_tokens": cache,
                 "fabric": device_params["fabric_config"].name,
@@ -629,18 +527,12 @@ def test_sparse_mla_perf(request, mesh_device, device_params, variant, case_name
                 ),
                 "kv_cache_format": "scaled_fp8",
                 "weights": "random",
-                "samples_ms": result.samples.values,
-                "measured_ms": result.measured,
-                "target_ms": result.target.ms,
-                "margin_pct": result.target.margin * 100.0,
-                "within_band": result.within,
+                "samples_ms": samples[mode],
+                "measured_ms": measured,
+                "target_ms": target,
+                "margin_pct": MARGIN[mode] * 100.0,
+                "within_band": target is not None and band_failure(mode, measured, target, MARGIN[mode]) is None,
             },
-        )
-
-    report = PerfReport(label, emit)
-    for mode in MODES:
-        report.add(
-            mode, samples[mode], PerfTarget(PERF_TARGETS_MS.get((case_name, box, scenario, mode)), PERF_MARGIN[mode])
         )
     correctness = []
     if trace_pcc < TRACE_PCC:
@@ -650,7 +542,7 @@ def test_sparse_mla_perf(request, mesh_device, device_params, variant, case_name
             f"traced output differs from untraced: min per-device PCC {trace_pcc:.6f} (eager vs eager "
             f"{min_pcc(eager_repeat[0], eager_out):.6f}, replay vs replay {min_pcc(traced_repeat[0], traced_out):.6f})"
         )
-    report.finish(correctness)
+    gate(label, results, correctness)
 
 
 # ============================================================================
@@ -749,10 +641,7 @@ def test_mla_chunked_perf(
     if scenario != "cold":
         untraced, _ = _time_untraced(mesh_device, case, cache)
         traced, _ = _time_traced(mesh_device, case, cache)
-        print(
-            f"\n{label}: untraced {untraced.fastest:.3f} ms (fastest of {len(untraced.values)}), "
-            f"traced {traced.values[0]:.3f} ms"
-        )
+        print(f"\n{label}: untraced {min(untraced):.3f} ms (fastest of {len(untraced)}), traced {traced[0]:.3f} ms")
         return
 
     # cold: one untimed fill compiles every start; then one timed untraced fill, then each chunk traced.
@@ -767,7 +656,7 @@ def test_mla_chunked_perf(
         ttnn.synchronize_device(mesh_device)
         untraced_rows.append((time.perf_counter() - t0) * 1e3)
         ttnn.deallocate(out)
-    traced_rows = [_time_traced(mesh_device, case, start)[0].values[0] for start in starts]
+    traced_rows = [_time_traced(mesh_device, case, start)[0][0] for start in starts]
     rows = list(zip(starts, untraced_rows, traced_rows))
     print(
         f"\n{label}: {len(starts)} chunks, untraced {sum(r[1] for r in rows):.3f} ms, "
