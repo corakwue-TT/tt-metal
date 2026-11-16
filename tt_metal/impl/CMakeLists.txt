@@ -90,12 +90,9 @@ list(APPEND IMPL_SRC ${CMAKE_CURRENT_SOURCE_DIR}/internal/disaggregation/kv_chun
 add_library(impl OBJECT ${IMPL_SRC})
 add_library(Metalium::Metal::Impl ALIAS impl)
 
-# Keep these from perturbing the established unity source batches. Shifting a batch boundary can
-# land a file in a chunk whose other members include <fmt/ranges.h>, which makes the std::vector
-# formatter in tt_stl/fmt.hpp ambiguous and fails the build.
+# Keep the reload extension from perturbing the established unity source batches.
 set_source_files_properties(
     ${CMAKE_CURRENT_SOURCE_DIR}/internal/reload_table.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/context/simulator_termination.cpp
     PROPERTIES
         SKIP_UNITY_BUILD_INCLUSION
             TRUE
@@ -112,6 +109,7 @@ target_link_libraries(
         Tracy::TracyClient
     PRIVATE
         FlatBuffers::FlatBuffers
+        range-v3::range-v3
         TT::Metalium::Common
         TT::Metalium::HostDevCommon
         Metalium::Metal::Hardware

@@ -201,12 +201,7 @@ std::vector<DramBankWorkerAssignment> get_optimal_dram_bank_worker_assignments(
     const std::shared_ptr<tt::tt_metal::distributed::MeshDevice>& mesh_device, tt_metal::NOC noc) {
     const uint32_t num_dram_channels = mesh_device->num_dram_channels();
 
-    const auto bank_to_core = mesh_device->get_optimal_dram_bank_to_logical_worker_assignment(
-        noc, distributed::MeshCoordinate::zero_coordinate(mesh_device->shape().dims()));
-    std::vector<CoreCoord> optimal_workers(bank_to_core.size());
-    for (const auto& [bank, core] : bank_to_core) {
-        optimal_workers.at(bank) = core;
-    }
+    std::vector<CoreCoord> optimal_workers = mesh_device->get_optimal_dram_bank_to_logical_worker_assignment(noc);
 
     TT_FATAL(
         optimal_workers.size() == num_dram_channels,

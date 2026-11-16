@@ -33,11 +33,12 @@
 namespace tt::tt_metal::experimental {
 
 GlobalCircularBufferImpl::GlobalCircularBufferImpl(
-    distributed::MeshCommandQueue& mesh_cq,
+    distributed::MeshDevice& device,
     const std::vector<std::pair<CoreCoord, CoreRangeSet>>& sender_receiver_core_mapping,
     uint32_t size,
-    BufferType buffer_type) :
-    device_(mesh_cq.device()), sender_receiver_core_mapping_(sender_receiver_core_mapping), size_(size) {
+    BufferType buffer_type,
+    uint8_t cq_id) :
+    device_(&device), sender_receiver_core_mapping_(sender_receiver_core_mapping), size_(size) {
     const uint32_t num_sender_cores = sender_receiver_core_mapping.size();
     TT_FATAL(num_sender_cores > 0, "At least one sender required");
     uint32_t num_receiver_cores = 0;
@@ -55,11 +56,11 @@ GlobalCircularBufferImpl::GlobalCircularBufferImpl(
     TT_FATAL(num_receiver_cores == receiver_cores_.num_cores(), "Duplicate receiver cores found");
     all_cores_ = sender_cores_.merge(receiver_cores_);
     TT_FATAL(all_cores_.num_cores() == num_sender_cores + num_receiver_cores, "Duplicate cores found");
-    this->setup_cb_buffers(buffer_type, max_num_receivers_per_sender, mesh_cq);
+    this->setup_cb_buffers(buffer_type, max_num_receivers_per_sender, cq_id);
 }
 
 void GlobalCircularBufferImpl::setup_cb_buffers(
-    BufferType buffer_type, uint32_t max_num_receivers_per_sender, distributed::MeshCommandQueue& mesh_cq) {
+    BufferType buffer_type, uint32_t max_num_receivers_per_sender, uint8_t cq_id) {
     TT_FATAL(
         buffer_type == BufferType::L1 or buffer_type == BufferType::L1_SMALL,
         "Global circular buffer can only be created for L1 buffer types");
@@ -153,7 +154,8 @@ void GlobalCircularBufferImpl::setup_cb_buffers(
     }
 
     // Every device gets the same config page, so one broadcast write covers the mesh.
-    distributed::EnqueueWriteMeshBuffer(mesh_cq, cb_config_buffer_, cb_config_host_buffer, false);
+    distributed::EnqueueWriteMeshBuffer(
+        device_->mesh_command_queue(cq_id), cb_config_buffer_, cb_config_host_buffer, false);
 }
 
 const Buffer& GlobalCircularBufferImpl::cb_buffer() const { return *cb_buffer_->get_reference_buffer(); }
@@ -182,14 +184,7 @@ GlobalCircularBuffer::GlobalCircularBuffer(
     uint32_t size,
     BufferType buffer_type,
     uint8_t cq_id) :
-    GlobalCircularBuffer(device.mesh_command_queue(cq_id), sender_receiver_core_mapping, size, buffer_type) {}
-
-GlobalCircularBuffer::GlobalCircularBuffer(
-    distributed::MeshCommandQueue& mesh_cq,
-    const std::vector<std::pair<CoreCoord, CoreRangeSet>>& sender_receiver_core_mapping,
-    uint32_t size,
-    BufferType buffer_type) :
-    GlobalCircularBuffer(GlobalCircularBufferImpl(mesh_cq, sender_receiver_core_mapping, size, buffer_type)) {}
+    GlobalCircularBuffer(GlobalCircularBufferImpl(device, sender_receiver_core_mapping, size, buffer_type, cq_id)) {}
 
 GlobalCircularBuffer CreateGlobalCircularBuffer(
     distributed::MeshDevice& device,
@@ -197,15 +192,8 @@ GlobalCircularBuffer CreateGlobalCircularBuffer(
     uint32_t size,
     BufferType buffer_type,
     uint8_t cq_id) {
-    return GlobalCircularBuffer(device.mesh_command_queue(cq_id), sender_receiver_core_mapping, size, buffer_type);
-}
-
-GlobalCircularBuffer CreateGlobalCircularBuffer(
-    distributed::MeshCommandQueue& mesh_cq,
-    const std::vector<std::pair<CoreCoord, CoreRangeSet>>& sender_receiver_core_mapping,
-    uint32_t size,
-    BufferType buffer_type) {
-    return GlobalCircularBuffer(mesh_cq, sender_receiver_core_mapping, size, buffer_type);
+    return GlobalCircularBuffer(
+        GlobalCircularBufferImpl(device, sender_receiver_core_mapping, size, buffer_type, cq_id));
 }
 
 GlobalCircularBuffer::GlobalCircularBuffer(GlobalCircularBufferImpl impl) :

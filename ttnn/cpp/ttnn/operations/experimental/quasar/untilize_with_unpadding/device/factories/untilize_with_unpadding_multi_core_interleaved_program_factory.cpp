@@ -15,7 +15,7 @@
 
 using namespace tt::constants;
 using namespace tt::tt_metal;
-using tt::tt_metal::experimental::AdvancedKernelRunArgs;
+using namespace tt::tt_metal::experimental;
 
 namespace ttnn::prim::qsr {
 

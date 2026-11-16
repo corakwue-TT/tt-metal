@@ -20,7 +20,6 @@
 #include "ttnn/operations/core/work_split/work_split_tilize.hpp"
 #include "ttnn/common/constants.hpp"
 #include <tt-metalium/buffer_distribution_spec.hpp>
-#include <tt-metalium/experimental/tensor_layout_apis_with_custom_alignment.hpp>
 
 using namespace tt::tt_metal;
 
@@ -280,7 +279,7 @@ UntilizeDeviceOperation::spec_return_value_t UntilizeDeviceOperation::compute_ou
 
     return {tt::tt_metal::TensorSpec(
         input_tensor.logical_shape(),
-        tt::tt_metal::experimental::tensor_layout_from_padded_shape(
+        TensorLayout::fromPaddedShape(
             output_dtype,
             PageConfig(Layout::ROW_MAJOR),
             operation_attributes.output_mem_config,

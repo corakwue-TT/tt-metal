@@ -73,10 +73,10 @@ class Qwen3MLP(AbstractModuleBase):
 class Qwen3Block(AbstractModuleBase):
     """Single Qwen3 decoder layer: pre-norm attention + pre-norm MLP."""
 
-    def __init__(self, config, layer_idx: int, rope_params: ttml.ops.rope.RotaryEmbeddingParams) -> None:
+    def __init__(self, config, layer_idx: int) -> None:
         super().__init__()
 
-        self.self_attn = Qwen3Attention(config, layer_idx, rope_params)
+        self.self_attn = Qwen3Attention(config, layer_idx)
         self.mlp = Qwen3MLP(config.hidden_size, config.intermediate_size)
         self.input_layernorm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = Qwen3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
@@ -87,7 +87,6 @@ class Qwen3Block(AbstractModuleBase):
         mask: Optional[ttml.autograd.Tensor] = None,
         past_key_values=None,
         position_offset: int = 0,
-        rope_positions: Optional[ttml.ops.rope.RotaryEmbeddingPositions] = None,
     ):
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
@@ -96,7 +95,6 @@ class Qwen3Block(AbstractModuleBase):
             mask,
             past_key_values,
             position_offset,
-            rope_positions,
         )
         hidden_states = ttml.ops.binary.add(residual, hidden_states)
 

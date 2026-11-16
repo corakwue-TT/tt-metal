@@ -153,7 +153,7 @@ void run_kernel(RUNTIME_PARAMETERS params)
         START_PERF_MEASURE("INIT")
         _llk_math_hw_configure_<is_fp32_dest_acc_en>(formats.math, formats.math);
         _llk_math_pack_sync_init_<dest_sync, is_fp32_dest_acc_en>();
-        _llk_math_matmul_init_<MATH_FIDELITY, THROTTLE_LEVEL, MATMUL_ROW_MOP>(
+        _llk_math_matmul_init_<MATH_FIDELITY, THROTTLE_LEVEL>(
             in0_tile_r_dim, in0_tile_c_dim, in1_tile_r_dim, in1_tile_c_dim, PARTIAL_FACE_MATH, UNPACK_TRANSPOSE_FACES, CT_DIM, RT_DIM);
         PROFILER_SYNC();
     }
@@ -162,7 +162,7 @@ void run_kernel(RUNTIME_PARAMETERS params)
         if constexpr (PERF_RUN_TYPE == PerfRunType::PACK_ISOLATE)
         {
         }
-        else if constexpr (PERF_RUN_TYPE == PerfRunType::UNPACK_ISOLATE)
+        else if constexpr (PERF_RUN_TYPE == PerfRunType::UNPACK_ISOLATE || PERF_RUN_TYPE == PerfRunType::L1_CONGESTION)
         {
             _perf_math_matmul_mock<PERF_RUN_TYPE>(LOOP_FACTOR, RT_DIM, KT_DIM, CT_DIM, NUM_BLOCKS);
         }
@@ -172,17 +172,9 @@ void run_kernel(RUNTIME_PARAMETERS params)
             {
                 for (int block = 0; block < NUM_BLOCKS; ++block)
                 {
-                    if constexpr (MATMUL_ROW_MOP)
+                    for (std::uint32_t j = 0; j < KT_DIM; j++)
                     {
-                        // Row MOP: the block's KT_DIM K steps in one call
-                        _llk_math_matmul_<MATH_FIDELITY, THROTTLE_LEVEL, MATMUL_ROW_MOP>(DST_INDEX, CT_DIM, RT_DIM, KT_DIM);
-                    }
-                    else
-                    {
-                        for (std::uint32_t j = 0; j < KT_DIM; j++)
-                        {
-                            _llk_math_matmul_<MATH_FIDELITY, THROTTLE_LEVEL>(DST_INDEX, CT_DIM, RT_DIM);
-                        }
+                        _llk_math_matmul_<MATH_FIDELITY, THROTTLE_LEVEL>(DST_INDEX, CT_DIM, RT_DIM);
                     }
                 }
             }
@@ -197,17 +189,9 @@ void run_kernel(RUNTIME_PARAMETERS params)
                     LLK_ASSERT(
                         (NUM_TILES_IN_BLOCK <= get_dest_max_tiles<dest_sync, is_fp32_dest_acc_en, DstTileShape::Tile32x32>()),
                         "Matmul block exceeds destination capacity");
-                    if constexpr (MATMUL_ROW_MOP)
+                    for (std::uint32_t j = 0; j < KT_DIM; j++)
                     {
-                        // Row MOP: the block's KT_DIM K steps in one call
-                        _llk_math_matmul_<MATH_FIDELITY, THROTTLE_LEVEL, MATMUL_ROW_MOP>(DST_INDEX, CT_DIM, RT_DIM, KT_DIM);
-                    }
-                    else
-                    {
-                        for (std::uint32_t j = 0; j < KT_DIM; j++)
-                        {
-                            _llk_math_matmul_<MATH_FIDELITY, THROTTLE_LEVEL>(DST_INDEX, CT_DIM, RT_DIM);
-                        }
+                        _llk_math_matmul_<MATH_FIDELITY, THROTTLE_LEVEL>(DST_INDEX, CT_DIM, RT_DIM);
                     }
                     _llk_math_dest_section_done_<dest_sync, is_fp32_dest_acc_en>();
                 }
@@ -267,7 +251,7 @@ void run_kernel(RUNTIME_PARAMETERS params)
         {
             return;
         }
-        else if constexpr (PERF_RUN_TYPE == PerfRunType::PACK_ISOLATE)
+        else if constexpr (PERF_RUN_TYPE == PerfRunType::PACK_ISOLATE || PERF_RUN_TYPE == PerfRunType::L1_CONGESTION)
         {
             for (std::uint32_t loop = 0; loop < LOOP_FACTOR; loop++)
             {

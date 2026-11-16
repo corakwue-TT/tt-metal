@@ -101,6 +101,7 @@ RUN_TYPE_NAMES = frozenset(
         "UNPACK_ISOLATE",
         "MATH_ISOLATE",
         "PACK_ISOLATE",
+        "L1_CONGESTION",
         "SFPU_ISOLATE",
     }
 )

@@ -68,6 +68,7 @@ class GlobalConfig:
         return self.perf_run_type in (
             PerfRunType.UNPACK_ISOLATE,
             PerfRunType.PACK_ISOLATE,
+            PerfRunType.L1_CONGESTION,
         )
 
     @property
@@ -76,6 +77,7 @@ class GlobalConfig:
             PerfRunType.MATH_ISOLATE,
             PerfRunType.UNPACK_ISOLATE,
             PerfRunType.PACK_ISOLATE,
+            PerfRunType.L1_CONGESTION,
         )
 
 

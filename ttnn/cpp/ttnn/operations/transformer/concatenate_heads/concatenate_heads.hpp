@@ -14,7 +14,6 @@ namespace ttnn::transformer {
  */
 ttnn::Tensor concatenate_heads(
     const Tensor& input_tensor,
-    const std::optional<MemoryConfig>& memory_config = std::nullopt,
-    bool runtime_rows = false);
+    const std::optional<MemoryConfig>& memory_config = std::nullopt);
 
 }  // namespace ttnn::transformer

@@ -39,7 +39,7 @@ uint32_t make_relu_config(PackReluMode mode, float threshold = 0.0f) {
 // direct_reader_unary.cpp → eltwise_copy.cpp (with PACK_RELU) → direct_writer_unary.cpp
 void run_pack_relu_test(
     distributed::MeshDevice& mesh_device, uint32_t relu_config, const std::function<float(float)>& golden_fn) {
-    const NodeCoord node{0, 0};
+    const experimental::NodeCoord node{0, 0};
 
     uint32_t single_tile_size = 2 * 1024;
     uint32_t num_tiles = 1;
@@ -53,51 +53,51 @@ void run_pack_relu_test(
     uint32_t dram_buffer_src_addr = src_dram_buffer->address();
     uint32_t dram_buffer_dst_addr = dst_dram_buffer->address();
 
-    const DFBSpecName INPUT_DFB{"input_dfb"};
-    const DFBSpecName OUTPUT_DFB{"output_dfb"};
-    const KernelSpecName READER{"reader"};
-    const KernelSpecName WRITER{"writer"};
-    const KernelSpecName COMPUTE{"compute"};
+    const experimental::DFBSpecName INPUT_DFB{"input_dfb"};
+    const experimental::DFBSpecName OUTPUT_DFB{"output_dfb"};
+    const experimental::KernelSpecName READER{"reader"};
+    const experimental::KernelSpecName WRITER{"writer"};
+    const experimental::KernelSpecName COMPUTE{"compute"};
 
     // Implicit sync is enabled by default for both DFBs (no DM kernel opts out
     // via DataMovement2XXConfig::disable_dfb_implicit_sync_for). The program-level
     // reservation flag set below is independent of per-DFB sync mode.
-    DataflowBufferSpec input_dfb_spec{
+    experimental::DataflowBufferSpec input_dfb_spec{
         .unique_id = INPUT_DFB,
         .entry_size = single_tile_size,
         .num_entries = 2,
         .data_format_metadata = tt::DataFormat::Float16_b,
     };
-    DataflowBufferSpec output_dfb_spec{
+    experimental::DataflowBufferSpec output_dfb_spec{
         .unique_id = OUTPUT_DFB,
         .entry_size = single_tile_size,
         .num_entries = 2,
         .data_format_metadata = tt::DataFormat::Float16_b,
     };
 
-    KernelSpec reader_spec{
+    experimental::KernelSpec reader_spec{
         .unique_id = READER,
         .source =
 
             "tests/tt_metal/tt_metal/test_kernels/dataflow/unit_tests/dram/direct_reader_unary_2_0.cpp",
         .num_threads = 1,
-        .dfb_bindings = {ProducerOf(INPUT_DFB, "out")},
+        .dfb_bindings = {experimental::ProducerOf(INPUT_DFB, "out")},
         .runtime_arg_schema = {.runtime_arg_names = {"src_addr", "src_bank_id", "num_tiles", "dram_page_stride"}},
-        .hw_config = DataMovementHardwareConfig{},
+        .hw_config = experimental::DataMovementHardwareConfig{},
     };
 
-    KernelSpec writer_spec{
+    experimental::KernelSpec writer_spec{
         .unique_id = WRITER,
         .source =
 
             "tests/tt_metal/tt_metal/test_kernels/dataflow/unit_tests/dram/direct_writer_unary_2_0.cpp",
         .num_threads = 1,
-        .dfb_bindings = {ConsumerOf(OUTPUT_DFB, "in")},
+        .dfb_bindings = {experimental::ConsumerOf(OUTPUT_DFB, "in")},
         .runtime_arg_schema = {.runtime_arg_names = {"dst_addr", "dst_bank_id", "num_tiles", "dram_page_stride"}},
-        .hw_config = DataMovementHardwareConfig{},
+        .hw_config = experimental::DataMovementHardwareConfig{},
     };
 
-    KernelSpec compute_spec{
+    experimental::KernelSpec compute_spec{
         .unique_id = COMPUTE,
         .source =
 
@@ -108,34 +108,34 @@ void run_pack_relu_test(
             {{
                  .dfb_spec_name = INPUT_DFB,
                  .accessor_name = "in",
-                 .endpoint_type = DFBEndpointType::CONSUMER,
-                 .access_pattern = DFBAccessPattern::STRIDED,
+                 .endpoint_type = experimental::DFBEndpointType::CONSUMER,
+                 .access_pattern = experimental::DFBAccessPattern::STRIDED,
              },
              {
                  .dfb_spec_name = OUTPUT_DFB,
                  .accessor_name = "out",
-                 .endpoint_type = DFBEndpointType::PRODUCER,
-                 .access_pattern = DFBAccessPattern::STRIDED,
+                 .endpoint_type = experimental::DFBEndpointType::PRODUCER,
+                 .access_pattern = experimental::DFBAccessPattern::STRIDED,
              }},
         .compile_time_args = {{"per_core_tile_cnt", num_tiles}},
         .runtime_arg_schema = {.runtime_arg_names = {"relu_config"}},
-        .hw_config = ComputeHardwareConfig{},
+        .hw_config = experimental::ComputeHardwareConfig{},
     };
 
-    WorkUnitSpec wu{
+    experimental::WorkUnitSpec wu{
         .name = "main",
         .kernels = {READER, WRITER, COMPUTE},
         .target_nodes = node,
     };
 
-    ProgramSpec spec{
+    experimental::ProgramSpec spec{
         .name = "pack_relu",
         .kernels = {reader_spec, writer_spec, compute_spec},
         .dataflow_buffers = {input_dfb_spec, output_dfb_spec},
         .work_units = {wu},
     };
 
-    Program program = tt_metal::experimental::MakeProgramFromSpec(mesh_device, spec);
+    Program program = experimental::MakeProgramFromSpec(mesh_device, spec);
 
     // Stimulus: random bfloat16 in [-1, 1]
     std::vector<uint32_t> src_vec = create_random_vector_of_bfloat16(dram_buffer_size, 1.0f, 0xCAFE);
@@ -147,32 +147,32 @@ void run_pack_relu_test(
     const uint32_t dst_aligned_page_size =
         static_cast<uint32_t>(dst_dram_buffer->get_reference_buffer()->aligned_page_size());
 
-    ProgramRunArgs params;
+    experimental::ProgramRunArgs params;
     params.kernel_run_args = {
-        ProgramRunArgs::KernelRunArgs{
+        experimental::ProgramRunArgs::KernelRunArgs{
             .kernel = READER,
-            .runtime_arg_values = MakeRuntimeArgsForSingleNode(
+            .runtime_arg_values = experimental::MakeRuntimeArgsForSingleNode(
                 node,
                 {{"src_addr", dram_buffer_src_addr},
                  {"src_bank_id", 0u},
                  {"num_tiles", num_tiles},
                  {"dram_page_stride", src_aligned_page_size}}),
         },
-        ProgramRunArgs::KernelRunArgs{
+        experimental::ProgramRunArgs::KernelRunArgs{
             .kernel = WRITER,
-            .runtime_arg_values = MakeRuntimeArgsForSingleNode(
+            .runtime_arg_values = experimental::MakeRuntimeArgsForSingleNode(
                 node,
                 {{"dst_addr", dram_buffer_dst_addr},
                  {"dst_bank_id", 0u},
                  {"num_tiles", num_tiles},
                  {"dram_page_stride", dst_aligned_page_size}}),
         },
-        ProgramRunArgs::KernelRunArgs{
+        experimental::ProgramRunArgs::KernelRunArgs{
             .kernel = COMPUTE,
-            .runtime_arg_values = MakeRuntimeArgsForSingleNode(node, {{"relu_config", relu_config}}),
+            .runtime_arg_values = experimental::MakeRuntimeArgsForSingleNode(node, {{"relu_config", relu_config}}),
         },
     };
-    tt_metal::experimental::SetProgramRunArgs(program, params);
+    experimental::SetProgramRunArgs(program, params);
 
     LaunchProgram(mesh_device, std::move(program));
 

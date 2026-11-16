@@ -2,10 +2,30 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Re-export shim. Implementation lives in tt_py_test_utils_common.cache_entries_counter."""
+from contextlib import contextmanager
 
-import sys
 
-from tt_py_test_utils_common import cache_entries_counter as _impl
+class CacheEntriesCounter:
+    def __init__(self, device):
+        self.device = device
+        self.total = 0
 
-sys.modules[__name__] = _impl
+    def reset(self):
+        """Reset the accumulated cache diff to zero."""
+        self.total = 0
+
+    @contextmanager
+    def measure(self):
+        before = self.device.num_program_cache_entries()
+        yield
+        self.total += self.device.num_program_cache_entries() - before
+
+    def decorator(self, fn):
+        from functools import wraps
+
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            with self.measure():
+                return fn(*args, **kwargs)
+
+        return wrapper

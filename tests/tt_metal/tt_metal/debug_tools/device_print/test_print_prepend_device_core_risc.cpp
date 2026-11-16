@@ -56,52 +56,52 @@ constexpr const char* kPrintSimpleKernel = "tests/tt_metal/tt_metal/test_kernels
 // `cores`. This is Gen1-only by construction -- the golden output below spells out the Gen1 RISC
 // names (BR/NC/TR0/TR1/TR2), which have no Gen2 equivalent.
 Program MakeTensixPrependProgram(distributed::MeshDevice& mesh_device, const CoreRange& cores) {
-    const KernelSpecName kBrisc{"prepend_brisc"};
-    const KernelSpecName kNcrisc{"prepend_ncrisc"};
-    const KernelSpecName kCompute{"prepend_compute"};
+    const experimental::KernelSpecName kBrisc{"prepend_brisc"};
+    const experimental::KernelSpecName kNcrisc{"prepend_ncrisc"};
+    const experimental::KernelSpecName kCompute{"prepend_compute"};
     const auto source = std::filesystem::path{kPrintSimpleKernel};
 
     // Two dedicated-NOC DM kernels on one node must take distinct NOCs, or spec validation rejects
     // them (and the hardware would deadlock).
-    ProgramSpec spec{
+    experimental::ProgramSpec spec{
         .name = "dprint_prepend",
         .kernels =
-            {KernelSpec{
+            {experimental::KernelSpec{
                  .unique_id = kBrisc,
                  .source = source,
                  .num_threads = 1,
                  .hw_config =
-                     DataMovementHardwareConfig{
+                     experimental::DataMovementHardwareConfig{
                          .config_1xx =
-                             DataMovementHardwareConfig::DataMovement1XXConfig{
+                             experimental::DataMovementHardwareConfig::DataMovement1XXConfig{
                                  .processor = DataMovementProcessor::RISCV_0,
                                  .noc = NOC::NOC_0,
                              },
                      },
              },
-             KernelSpec{
+             experimental::KernelSpec{
                  .unique_id = kNcrisc,
                  .source = source,
                  .num_threads = 1,
                  .hw_config =
-                     DataMovementHardwareConfig{
+                     experimental::DataMovementHardwareConfig{
                          .config_1xx =
-                             DataMovementHardwareConfig::DataMovement1XXConfig{
+                             experimental::DataMovementHardwareConfig::DataMovement1XXConfig{
                                  .processor = DataMovementProcessor::RISCV_1,
                                  .noc = NOC::NOC_1,
                              },
                      },
              },
-             KernelSpec{
+             experimental::KernelSpec{
                  .unique_id = kCompute,
                  .source = source,
                  .num_threads = 1,
-                 .hw_config = ComputeHardwareConfig{},
+                 .hw_config = experimental::ComputeHardwareConfig{},
              }},
-        .work_units = {WorkUnitSpec{
-            .name = "main", .kernels = {kBrisc, kNcrisc, kCompute}, .target_nodes = NodeRange{cores}}},
+        .work_units = {experimental::WorkUnitSpec{
+            .name = "main", .kernels = {kBrisc, kNcrisc, kCompute}, .target_nodes = experimental::NodeRange{cores}}},
     };
-    return tt_metal::experimental::MakeProgramFromSpec(mesh_device, spec);
+    return experimental::MakeProgramFromSpec(mesh_device, spec);
 }
 
 void RunTest(

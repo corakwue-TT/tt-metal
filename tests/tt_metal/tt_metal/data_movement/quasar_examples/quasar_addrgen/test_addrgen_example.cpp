@@ -32,10 +32,10 @@ bool run_addrgen_test(
     uint32_t src_stride_en,
     uint32_t dst_stride_en,
     uint32_t num_of_addresses) {
-    const KernelSpecName DM_KERNEL{"addrgen"};
-    const NodeCoord node{0, 0};
+    const experimental::KernelSpecName DM_KERNEL{"addrgen"};
+    const experimental::NodeCoord node{0, 0};
 
-    KernelSpec dm_kernel_spec{
+    experimental::KernelSpec dm_kernel_spec{
         .unique_id = DM_KERNEL,
         .source = kernel_path,
         .num_threads = 1,
@@ -43,24 +43,24 @@ bool run_addrgen_test(
             {{"src_stride_en", src_stride_en},
              {"dst_stride_en", dst_stride_en},
              {"num_of_addresses", num_of_addresses}},
-        .hw_config = DataMovementHardwareConfig{},
+        .hw_config = experimental::DataMovementHardwareConfig{},
     };
 
-    WorkUnitSpec main_wu{
+    experimental::WorkUnitSpec main_wu{
         .name = "main",
         .kernels = {DM_KERNEL},
         .target_nodes = node,
     };
 
-    ProgramSpec spec{
+    experimental::ProgramSpec spec{
         .name = "addrgen",
         .kernels = {dm_kernel_spec},
         .work_units = {main_wu},
     };
     Program program = experimental::MakeProgramFromSpec(*mesh_device, spec);
 
-    ProgramRunArgs params;
-    params.kernel_run_args = {ProgramRunArgs::KernelRunArgs{.kernel = DM_KERNEL}};
+    experimental::ProgramRunArgs params;
+    params.kernel_run_args = {experimental::ProgramRunArgs::KernelRunArgs{.kernel = DM_KERNEL}};
     experimental::SetProgramRunArgs(program, params);
 
     distributed::MeshWorkload workload;

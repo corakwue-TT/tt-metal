@@ -7,7 +7,6 @@
 #include "allocator/allocator.hpp"
 #include "context/context_types.hpp"
 #include "impl/context/metal_context.hpp"
-#include "impl/context/metal_env_impl.hpp"
 #include "device/device_manager.hpp"
 #include "dispatch/device_command.hpp"
 #include "dispatch/device_command_calculator.hpp"
@@ -227,15 +226,14 @@ void read_completion_queue(
     uint16_t channel,
     uint32_t addr,
     const SystemMemoryManager& sysmem_manager) {
-    MetalContext& metal_ctx = sysmem_manager.metal_context();
-    auto& cluster = sysmem_manager.env_impl().get_cluster();
+    MetalContext& metal_ctx = MetalContext::instance(sysmem_manager.get_context_id());
     if (sysmem_manager.is_dram_backed()) {
         const uint32_t dram_channel =
             metal_ctx.device_manager()->get_active_device(device_id)->allocator_impl()->get_dram_channel_from_bank_id(
                 sysmem_manager.get_dram_region_bank_id());
-        cluster.read_dram_vec(dst, size_bytes, device_id, dram_channel, addr);
+        metal_ctx.get_cluster().read_dram_vec(dst, size_bytes, device_id, dram_channel, addr);
     } else {
-        cluster.read_sysmem(dst, size_bytes, addr, device_id, channel);
+        metal_ctx.get_cluster().read_sysmem(dst, size_bytes, addr, device_id, channel);
     }
 }
 

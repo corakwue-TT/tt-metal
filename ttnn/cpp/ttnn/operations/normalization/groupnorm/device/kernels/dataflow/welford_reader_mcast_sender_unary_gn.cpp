@@ -394,11 +394,11 @@ void kernel_main() {
 #ifndef GN_DISTRIBUTED_AG
             if constexpr (num_mcast_cores > 1) {
                 // mcast to other cores
-                const uint32_t global_means_offset = global_means_ptr - global_base_ptr;
+                const MulticastEndpoint mcast_dst;
                 if (has_mid_receivers) {
                     noc.async_write_multicast(
                         CoreLocalMem<std::uint32_t>(global_means_ptr),
-                        dfb_ex_global,
+                        mcast_dst,
                         2 * single_tile_size_bytes,
                         num_mcast_cores_mid_group,
                         {},
@@ -406,7 +406,7 @@ void kernel_main() {
                          .noc_y_start = mcast_dest_noc_start_y,
                          .noc_x_end = mcast_dest_noc_end_x,
                          .noc_y_end = mcast_dest_noc_end_y,
-                         .offset_bytes = global_means_offset},
+                         .addr = global_means_ptr},
                         true);
                     reduce_sender_sem.set_multicast(
                         noc,
@@ -419,9 +419,10 @@ void kernel_main() {
                 }
 
                 if (has_first_receivers) {
+                    const MulticastEndpoint mcast_first_group_dst;
                     noc.async_write_multicast(
                         CoreLocalMem<std::uint32_t>(global_means_ptr),
-                        dfb_ex_global,
+                        mcast_first_group_dst,
                         2 * single_tile_size_bytes,
                         num_mcast_cores_first_group,
                         {},
@@ -429,7 +430,7 @@ void kernel_main() {
                          .noc_y_start = mcast_first_group_dest_noc_start_y,
                          .noc_x_end = mcast_first_group_dest_noc_end_x,
                          .noc_y_end = mcast_first_group_dest_noc_end_y,
-                         .offset_bytes = global_means_offset},
+                         .addr = global_means_ptr},
                         true);
                     reduce_sender_sem.set_multicast(
                         noc,
@@ -442,9 +443,10 @@ void kernel_main() {
                 }
 
                 if (has_mcast_last_group) {
+                    const MulticastEndpoint mcast_last_group_dst;
                     noc.async_write_multicast(
                         CoreLocalMem<std::uint32_t>(global_means_ptr),
-                        dfb_ex_global,
+                        mcast_last_group_dst,
                         2 * single_tile_size_bytes,
                         num_mcast_cores_last_group,
                         {},
@@ -452,7 +454,7 @@ void kernel_main() {
                          .noc_y_start = mcast_last_group_dest_noc_start_y,
                          .noc_x_end = mcast_last_group_dest_noc_end_x,
                          .noc_y_end = mcast_last_group_dest_noc_end_y,
-                         .offset_bytes = global_means_offset},
+                         .addr = global_means_ptr},
                         true);
                     reduce_sender_sem.set_multicast(
                         noc,
@@ -531,16 +533,18 @@ void kernel_main() {
         // group) to the receiver cores in one shot, then release them with one semaphore multicast.
         if constexpr (num_mcast_cores > 1) {
             constexpr uint32_t mcast_bytes = 2 * num_groups * single_tile_size_bytes;
+            MulticastEndpoint mcast_dst;
             noc.async_write_multicast(
                 CoreLocalMem<uint32_t>(global_base_ptr),
-                dfb_ex_global,
+                mcast_dst,
                 mcast_bytes,
                 num_mcast_cores_mid_group,
                 {},
                 {.noc_x_start = mcast_dest_noc_start_x,
                  .noc_y_start = mcast_dest_noc_start_y,
                  .noc_x_end = mcast_dest_noc_end_x,
-                 .noc_y_end = mcast_dest_noc_end_y},
+                 .noc_y_end = mcast_dest_noc_end_y,
+                 .addr = global_base_ptr},
                 true);
             reduce_sender_sem.set_multicast(
                 noc,
@@ -552,16 +556,18 @@ void kernel_main() {
                 false);
 
             if (has_mcast_first_group) {
+                MulticastEndpoint mcast_first_group_dst;
                 noc.async_write_multicast(
                     CoreLocalMem<uint32_t>(global_base_ptr),
-                    dfb_ex_global,
+                    mcast_first_group_dst,
                     mcast_bytes,
                     num_mcast_cores_first_group,
                     {},
                     {.noc_x_start = mcast_first_group_dest_noc_start_x,
                      .noc_y_start = mcast_first_group_dest_noc_start_y,
                      .noc_x_end = mcast_first_group_dest_noc_end_x,
-                     .noc_y_end = mcast_first_group_dest_noc_end_y},
+                     .noc_y_end = mcast_first_group_dest_noc_end_y,
+                     .addr = global_base_ptr},
                     true);
                 reduce_sender_sem.set_multicast(
                     noc,
@@ -574,16 +580,18 @@ void kernel_main() {
             }
 
             if (has_mcast_last_group) {
+                MulticastEndpoint mcast_last_group_dst;
                 noc.async_write_multicast(
                     CoreLocalMem<uint32_t>(global_base_ptr),
-                    dfb_ex_global,
+                    mcast_last_group_dst,
                     mcast_bytes,
                     num_mcast_cores_last_group,
                     {},
                     {.noc_x_start = mcast_last_group_dest_noc_start_x,
                      .noc_y_start = mcast_last_group_dest_noc_start_y,
                      .noc_x_end = mcast_last_group_dest_noc_end_x,
-                     .noc_y_end = mcast_last_group_dest_noc_end_y},
+                     .noc_y_end = mcast_last_group_dest_noc_end_y,
+                     .addr = global_base_ptr},
                     true);
                 reduce_sender_sem.set_multicast(
                     noc,

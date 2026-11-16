@@ -26,17 +26,37 @@ struct StridedAllGatherMinimalMatmulAsyncParams {
     const StridedAllGatherAsync ag_op;
     const MMSignalAggregatorMode mm_signal_aggregator_mode = MMSignalAggregatorMode::Auto;
 
-    // Reflection (logging, graph capture) only; the program-cache key is StridedAllGatherMinimalMatmulAsync::
-    // compute_program_hash. ag_op is left out because it carries no state.
+    // Compile-time attributes select exactly the program-structure-affecting fields for the default
+    // program-cache reflection hash + canonical key
     static constexpr auto attribute_names = std::forward_as_tuple(
-        "strided_all_gather_async_struct",
+        "dim",
+        "num_links",
+        "ring_size",
+        "output_mem_config",
+        "topology",
+        "cluster_axis",
+        "num_workers_per_link",
+        "num_buffers_per_channel",
+        "mm_cores_y",
+        "mm_block_ht",
+        "mm_block_wt",
         "matmul_struct",
         "all_gather_core_grid_offset",
         "read_local_slice_from_input",
         "mm_signal_aggregator_mode");
     auto attribute_values() const {
         return std::make_tuple(
-            std::cref(strided_all_gather_async_struct),
+            strided_all_gather_async_struct.dim,
+            strided_all_gather_async_struct.num_links,
+            strided_all_gather_async_struct.ring_size,
+            std::cref(strided_all_gather_async_struct.output_mem_config),
+            strided_all_gather_async_struct.topology,
+            std::cref(strided_all_gather_async_struct.cluster_axis),
+            std::cref(strided_all_gather_async_struct.num_workers_per_link),
+            std::cref(strided_all_gather_async_struct.num_buffers_per_channel),
+            std::cref(strided_all_gather_async_struct.mm_cores_y),
+            std::cref(strided_all_gather_async_struct.mm_block_ht),
+            std::cref(strided_all_gather_async_struct.mm_block_wt),
             std::cref(matmul_struct),
             std::cref(all_gather_core_grid_offset),
             read_local_slice_from_input,

@@ -32,7 +32,7 @@ int main() {
     distributed::MeshCommandQueue& cq = mesh_device->mesh_command_queue();
     distributed::MeshWorkload workload;
     distributed::MeshCoordinateRange device_range = distributed::MeshCoordinateRange(mesh_device->shape());
-    Program program = CreateProgram(*mesh_device);
+    Program program = CreateProgram();
 
     // Configure and create the kernel
     // This kernel does not perform any computation, it simply prints a message to show the compute cores running.

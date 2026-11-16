@@ -34,7 +34,7 @@ import torch
 
 import ttnn
 from models.common.utility_functions import is_quasar
-from tt_py_test_utils_common.utils_for_testing import assert_with_pcc
+from tests.ttnn.utils_for_testing import assert_with_pcc
 
 PCC = 0.99
 

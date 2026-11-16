@@ -8,7 +8,7 @@
 #include <tt-metalium/mesh_device.hpp>
 #include <tt-metalium/program.hpp>
 #include <tt-metalium/experimental/metal2_host_api/program.hpp>
-#include <tt-metalium/workload/specification/program_spec.hpp>
+#include <tt-metalium/experimental/metal2_host_api/program_spec.hpp>
 #include <tt_stl/fmt.hpp>
 
 #include "distributed/mesh_device_impl.hpp"
@@ -19,7 +19,7 @@
 #include "impl/metal2_host_api/program_spec/validation/validate_spec.hpp"
 #include "impl/program/program_impl.hpp"
 
-namespace tt::tt_metal {
+namespace tt::tt_metal::experimental {
 
 Program BuildProgramFromSpec(distributed::MeshDevice& mesh_device, const ProgramSpec& spec, bool skip_validation) {
     log_debug(tt::LogMetal, "Creating Program from ProgramSpec ({})", spec.name);
@@ -41,14 +41,13 @@ Program BuildProgramFromSpec(distributed::MeshDevice& mesh_device, const Program
 // Public Entry Points
 // ============================================================================
 
-Program experimental::MakeProgramFromSpec(
-    distributed::MeshDevice& mesh_device, const ProgramSpec& spec, bool skip_validation) {
+Program MakeProgramFromSpec(distributed::MeshDevice& mesh_device, const ProgramSpec& spec, bool skip_validation) {
     Program program = BuildProgramFromSpec(mesh_device, spec, skip_validation);
     program.impl().compile_and_allocate(&mesh_device, false);
     return program;
 }
 
-distributed::MeshWorkload experimental::MakeMeshWorkloadFromSpecs(
+distributed::MeshWorkload MakeMeshWorkloadFromSpecs(
     distributed::MeshDevice& mesh_device,
     const std::unordered_map<distributed::MeshCoordinateRange, ProgramSpec>& program_specs,
     bool skip_validation) {
@@ -67,7 +66,7 @@ distributed::MeshWorkload experimental::MakeMeshWorkloadFromSpecs(
     return workload;
 }
 
-distributed::MeshWorkload experimental::MakeMeshWorkloadFromSpec(
+distributed::MeshWorkload MakeMeshWorkloadFromSpec(
     distributed::MeshDevice& mesh_device, const ProgramSpec& program_spec, bool skip_validation) {
     distributed::MeshWorkload workload;
     workload.impl().add_program(
@@ -77,4 +76,4 @@ distributed::MeshWorkload experimental::MakeMeshWorkloadFromSpec(
     return workload;
 }
 
-}  // namespace tt::tt_metal
+}  // namespace tt::tt_metal::experimental

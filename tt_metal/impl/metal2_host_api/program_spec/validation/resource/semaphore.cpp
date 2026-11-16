@@ -12,7 +12,7 @@
 #include "impl/metal2_host_api/helpers.hpp"
 #include "impl/metal2_host_api/program_spec/validation/resource/resource.hpp"
 
-namespace tt::tt_metal {
+namespace tt::tt_metal::experimental {
 
 void ValidateSemaphoreSpec(const SemaphoreSpec& sem, tt::ARCH arch) {
     const uint32_t init_value = sem.advanced_options.initial_value;
@@ -107,4 +107,4 @@ void ValidateComputeSemaphores(const ValidationContext& ctx) {
     }
 }
 
-}  // namespace tt::tt_metal
+}  // namespace tt::tt_metal::experimental

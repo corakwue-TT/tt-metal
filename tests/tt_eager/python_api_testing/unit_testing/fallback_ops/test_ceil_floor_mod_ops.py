@@ -27,7 +27,12 @@ class TestMathOps:
         pt_out = torch.ceil(x)
 
         # Test on host RM
-        t0 = ttnn.from_torch(x, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
+        t0 = ttnn.Tensor(
+            x.reshape(-1).tolist(),
+            x.shape,
+            ttnn.bfloat16,
+            ttnn.ROW_MAJOR_LAYOUT,
+        )
         if on_device:
             t0 = t0.to(device)
 
@@ -46,7 +51,12 @@ class TestMathOps:
         pt_out = torch.floor(x)
 
         # Test on host RM
-        t0 = ttnn.from_torch(x, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
+        t0 = ttnn.Tensor(
+            x.reshape(-1).tolist(),
+            x.shape,
+            ttnn.bfloat16,
+            ttnn.ROW_MAJOR_LAYOUT,
+        )
         if on_device:
             t0 = t0.to(device)
 
@@ -66,7 +76,12 @@ class TestMathOps:
         pt_out = torch.fmod(x, other)
 
         # Test on host RM
-        t0 = ttnn.from_torch(x, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
+        t0 = ttnn.Tensor(
+            x.reshape(-1).tolist(),
+            x.shape,
+            ttnn.bfloat16,
+            ttnn.ROW_MAJOR_LAYOUT,
+        )
         if on_device:
             t0 = t0.to(device)
 
@@ -87,8 +102,18 @@ class TestMathOps:
         pt_out = torch.fmod(x, y)
 
         # Test on host RM
-        t0 = ttnn.from_torch(x, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
-        t1 = ttnn.from_torch(y, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
+        t0 = ttnn.Tensor(
+            x.reshape(-1).tolist(),
+            x.shape,
+            ttnn.bfloat16,
+            ttnn.ROW_MAJOR_LAYOUT,
+        )
+        t1 = ttnn.Tensor(
+            y.reshape(-1).tolist(),
+            y.shape,
+            ttnn.bfloat16,
+            ttnn.ROW_MAJOR_LAYOUT,
+        )
         if on_device:
             t0 = t0.to(device)
             t1 = t1.to(device)

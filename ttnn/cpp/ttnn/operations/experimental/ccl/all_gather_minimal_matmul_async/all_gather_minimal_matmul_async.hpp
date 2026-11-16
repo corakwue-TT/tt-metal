@@ -43,7 +43,6 @@ std::vector<ttnn::Tensor> all_gather_minimal_matmul_async(
     const std::optional<ttnn::Tensor>& persistent_weight_buffer = std::nullopt,
     std::optional<ttnn::ccl::Topology> fsdp_topology = std::nullopt,
     bool fuse_swiglu = false,
-    const std::vector<uint32_t>& chunk_sizes = {},
-    std::optional<bool> transpose_core_grid = std::nullopt);
+    const std::vector<uint32_t>& chunk_sizes = {});
 
 }  // namespace ttnn

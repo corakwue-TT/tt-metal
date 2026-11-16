@@ -17,7 +17,6 @@ ttnn::Tensor embedding(
     ttnn::prim::EmbeddingsType embeddings_type = ttnn::prim::EmbeddingsType::GENERIC,
     std::optional<const DataType> dtype = std::nullopt,
     const std::optional<MemoryConfig>& memory_config = std::nullopt,
-    const std::optional<Tensor>& optional_output_tensor = std::nullopt,
-    bool runtime_rows = false);
+    const std::optional<Tensor>& optional_output_tensor = std::nullopt);
 
 }  // namespace ttnn

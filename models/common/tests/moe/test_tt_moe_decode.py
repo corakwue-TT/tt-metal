@@ -27,7 +27,6 @@ from loguru import logger
 from ttnn.operations.ccl import MoEActivationFunction
 
 import ttnn
-from models.common.moe.compute_helpers import _swiglu_reference
 from models.common.moe.tt_moe_decode import TTMoEDecode
 from models.common.moe.tt_moe_decode_config import TTMoEDecodeConfig
 from models.common.utility_functions import is_blackhole
@@ -36,6 +35,7 @@ from models.demos.deepseek_v3.tests.fused_op_unit_tests.moe.test_optimized_moe_d
     create_torch_dispatch_input_tensor,
     verify_output,
 )
+from tests.nightly.tg.ccl.moe.test_moe_compute_6U import _swiglu_reference
 
 faulthandler.enable()
 

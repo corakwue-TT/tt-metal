@@ -15,29 +15,30 @@ import pytest
 import torch
 
 import ttnn
-from models.common.ci_failure import assert_perf_gate
 from models.common.utility_functions import run_for_blackhole
 from models.demos.deepseek_v3_d_p.reference.kimi_k3_config import KimiK3Config
-from models.demos.deepseek_v3_d_p.tests.fabric_profiles import fabric_1d_device_params, tp_axis_is_wrapped
-from models.demos.deepseek_v3_d_p.tests.kda.kda_test_utils import make_actual_start
+from models.demos.deepseek_v3_d_p.tests.fabric_profiles import (
+    fabric_1d_device_params,
+    torus_xy_device_params,
+    tp_axis_is_wrapped,
+)
 from models.demos.deepseek_v3_d_p.tests.kda.utils import (
     KIMI_K3_CONVOLUTION_NRMSE,
     LayerNrmseThresholds,
     deallocate_state,
-    kda_device_params,
     make_kimi_k3_device_case,
     make_synthetic_kimi_k3_test_case,
 )
 from models.demos.deepseek_v3_d_p.tt.kda.config import KDA_PARTIAL_OUTPUT_L1_BYTES_PER_CORE, l1_when_it_fits
 from models.demos.deepseek_v3_d_p.tt.kda.kda import KdaState, reduce_scatter_tp_partials, ttKDA
-from models.demos.deepseek_v3_d_p.tt.kda.state_adapter import KdaContractGeometry, KdaStates, device_scalar
 from models.demos.deepseek_v3_d_p.tt.tt_ccl import per_axis_topology
 from models.demos.deepseek_v3_d_p.utils.chunk_config import PREFILL_CHUNK_TOKENS, PREFILL_CHUNK_TOKENS_PER_CHIP
 from models.demos.deepseek_v3_d_p.utils.prefill_summary_utils import emit_perf_metrics
 from models.demos.deepseek_v3_d_p.utils.smbus_telemetry import require_high_power
 from models.tt_transformers.tt.ccl import TT_CCL
-from tt_py_test_utils_common.comparison_funcs import comp_pcc
-from tt_py_test_utils_common.realtime_profiler_utils import profile_realtime_program_merged, require_realtime_profiler
+from tests.tt_eager.python_api_testing.sweep_tests.comparison_funcs import comp_pcc
+from tests.ttnn.profiling.realtime_profiler_utils import profile_realtime_program_merged, require_realtime_profiler
+from tests.ttnn.unit_tests.operations.experimental.kda.kda_test_utils import make_actual_start
 
 pytestmark = [
     run_for_blackhole(),
@@ -51,15 +52,14 @@ _LOUDBOX_PERF_SKU = "bh_loudbox"
 _QUIETBOX_PERF_SKU = "bh_quietbox"
 _PERF_MARGIN = 0.03
 # Host wall time of one traced call: the median over _TIMING_SAMPLES samples, each of back-to-back trace replays
-# through device synchronization. SP8xTP1 and SP4xTP1 open FABRIC_1D_RING, every other case a 2D fabric with K3's
-# payload (kda_device_params).
+# through device synchronization.
 _PERF_REFERENCE_MS = {
     _LOUDBOX_PERF_SKU: {
-        "SP8xTP1": 1.237,
+        "SP8xTP1": 1.30,
         "TP4-linear": 0.188,
     },
     _QUIETBOX_PERF_SKU: {
-        "TP4-ring": 0.082,
+        "TP4-ring": 0.086,
     },
 }
 # Device time of one traced call: the sum over its programs of the slowest chip's realtime-profiler duration, the
@@ -70,7 +70,7 @@ _PERF_REFERENCE_MS = {
 _DEVICE_PERF_MARGIN = 0.05
 _DEVICE_PERF_REFERENCE_MS = {
     _QUIETBOX_PERF_SKU: {
-        "SP4xTP1": 1.217,
+        "SP4xTP1": 1.24,
     },
 }
 # Galaxy-equivalent layouts outside CI: they report wall time but are not gated.
@@ -81,11 +81,8 @@ _REDUCE_SCATTER_CALLS_PER_TRACE = 20
 _ACTUAL_START_OVERRIDE = os.environ.get("KDA_PERF_ACTUAL_START")
 # Galaxy target: a full chunk whose start falls mid-device. A resumed request starts at an arbitrary aligned
 # prefix, and every full chunk of it then wraps onto its first rank, which adds the final-carry barrier and
-# broadcast that a rank-aligned start skips. Production always passes actual_end, so the gate does too. An
-# untraced call also pays its host dispatch, which a block of 10 calls does not fully hide. Host dispatch varies more
-# from run to run than the device does, hence the untraced gate's wider margin.
-_GALAXY_PERF_REFERENCE_MS = {"traced": 1.418, "untraced": 1.435}
-_GALAXY_UNTRACED_PERF_MARGIN = 0.06
+# broadcast that a rank-aligned start skips. Production always passes actual_end, so the gate does too.
+_GALAXY_PERF_REFERENCE_MS = 1.337
 _GALAXY_TP = 4
 _GALAXY_HEADS_PER_CHIP = KimiK3Config.KDA_NUM_HEADS // _GALAXY_TP
 _GALAXY_ACTUAL_START = 4 * PREFILL_CHUNK_TOKENS_PER_CHIP + 320
@@ -116,10 +113,10 @@ _LOUDBOX_ACTUAL_START = 2 * PREFILL_CHUNK_TOKENS_PER_CHIP + 320
 _L1_SMALL_SIZE = 1152
 
 
-def _perf_reference_ms(layout: str, traced: bool = True) -> float:
+def _perf_reference_ms(layout: str) -> float:
     """Return the wall-time reference for a gated layout on the KDA_PERF_SKU it opts in to."""
     if layout == "SP8xTP4":
-        return _GALAXY_PERF_REFERENCE_MS["traced" if traced else "untraced"]
+        return _GALAXY_PERF_REFERENCE_MS
     skus = sorted(sku for sku, references in _PERF_REFERENCE_MS.items() if layout in references)
     if not skus:
         raise ValueError(f"{layout} has no host wall-time reference")
@@ -127,11 +124,6 @@ def _perf_reference_ms(layout: str, traced: bool = True) -> float:
     if sku not in skus:
         raise ValueError(f"set KDA_PERF_SKU to one of {skus} to opt in to this hardware-specific performance gate")
     return _PERF_REFERENCE_MS[sku][layout]
-
-
-def _perf_margin(layout: str, traced: bool = True) -> float:
-    """Return the wall-time margin for a gated layout."""
-    return _GALAXY_UNTRACED_PERF_MARGIN if layout == "SP8xTP4" and not traced else _PERF_MARGIN
 
 
 def _device_perf_reference_ms(layout: str) -> float | None:
@@ -149,88 +141,33 @@ def _allocate_state(layer: ttKDA) -> KdaState:
     return layer.allocate_state(batch_size=1)
 
 
-# The slab layer a gated perf call stores its carry at; any position of a one-layer slab costs the same.
-_SLAB_LAYER_IDX = 1
-
-
-@dataclass
-class _Slots:
-    """A one-slot, one-layer KDA state slab: what ttKDA.forward_slot imports from and exports to, as in the model."""
-
-    states: KdaStates
-    slot: ttnn.Tensor
-
-    @classmethod
-    def allocate(cls, mesh_device: ttnn.MeshDevice, config, layer: ttKDA, tensor_parallel_axis: int) -> "_Slots":
-        geometry = KdaContractGeometry.from_kda_config(
-            config,
-            mesh_shape=tuple(mesh_device.shape),
-            sp_axis=1 - tensor_parallel_axis,
-            tp_axis=tensor_parallel_axis,
-        )
-        states = KdaStates.allocate(mesh_device, geometry, layer_ids=(_SLAB_LAYER_IDX,), num_slots=1)
-        slot = device_scalar(mesh_device, 0)
-        # The slabs come uninitialized and the gated chunk starts mid-request, so it imports the slot: store a zero
-        # carry there first.
-        zero = _allocate_state(layer)
-        states.export_layer(zero, slot, _SLAB_LAYER_IDX)
-        deallocate_state(zero)
-        return cls(states=states, slot=slot)
-
-    def deallocate(self) -> None:
-        self.states.deallocate()
-        ttnn.deallocate(self.slot)
-
-
-def _layer_call(
-    layer: ttKDA,
-    hidden: ttnn.Tensor,
-    state: KdaState,
-    actual_start: ttnn.Tensor,
-    actual_end: ttnn.Tensor | None,
-    slots: _Slots | None,
-) -> tuple[ttnn.Tensor, KdaState | None]:
-    """One layer call: the functional forward, or with ``slots`` the model's per-chunk forward_slot on ``state`` as
-    the scratch carry (no carry returned: it went to the slab)."""
-    if slots is None:
-        return layer.forward(hidden, state, actual_start, actual_end)
-    output = layer.forward_slot(
-        hidden, state, slots.states, slots.slot, _SLAB_LAYER_IDX, actual_start=actual_start, actual_end=actual_end
-    )
-    return output, None
-
-
 def _assert_within_margin(what: str, measured_ms: float, reference_ms: float, margin: float) -> None:
     lower = reference_ms * (1.0 - margin)
     upper = reference_ms * (1.0 + margin)
-    assert_perf_gate(
-        lower <= measured_ms <= upper,
-        (
-            f"{what} {measured_ms:.3f} ms is outside performance range "
-            f"[{lower:.3f}, {upper:.3f}] ms "
-            f"(reference {reference_ms:.3f} ms ± {margin:.0%})"
-        ),
+    assert lower <= measured_ms <= upper, (
+        f"{what} {measured_ms:.3f} ms is outside performance range "
+        f"[{lower:.3f}, {upper:.3f}] ms "
+        f"(reference {reference_ms:.3f} ms ± {margin:.0%})"
     )
 
 
 @pytest.mark.parametrize(
-    "layout,sku,traced",
+    "layout,sku",
     [
-        ("SP8xTP1", _LOUDBOX_PERF_SKU, True),
-        ("TP4-linear", _LOUDBOX_PERF_SKU, True),
-        ("TP4-ring", _QUIETBOX_PERF_SKU, True),
+        ("SP8xTP1", _LOUDBOX_PERF_SKU),
+        ("TP4-linear", _LOUDBOX_PERF_SKU),
+        ("TP4-ring", _QUIETBOX_PERF_SKU),
         # The Galaxy gate needs no KDA_PERF_SKU opt-in.
-        ("SP8xTP4", None, True),
-        ("SP8xTP4", None, False),
+        ("SP8xTP4", None),
     ],
 )
-def test_synthetic_performance_uses_two_sided_margin(layout, sku, traced, monkeypatch, expect_error) -> None:
+def test_synthetic_performance_uses_two_sided_margin(layout, sku, monkeypatch, expect_error) -> None:
     if sku is None:
         monkeypatch.delenv("KDA_PERF_SKU", raising=False)
     else:
         monkeypatch.setenv("KDA_PERF_SKU", sku)
-    reference_ms = _perf_reference_ms(layout, traced)
-    margin = _perf_margin(layout, traced)
+    reference_ms = _perf_reference_ms(layout)
+    margin = _PERF_MARGIN
     _assert_within_margin(layout, reference_ms * (1 - 0.99 * margin), reference_ms, margin)
     _assert_within_margin(layout, reference_ms * (1 + 0.99 * margin), reference_ms, margin)
     with expect_error(AssertionError, "outside performance range"):
@@ -276,21 +213,19 @@ def _capture_layer_trace(
     hidden: ttnn.Tensor,
     actual_start: int = 0,
     actual_end: int | None = None,
-    slots: _Slots | None = None,
 ) -> _LayerTrace:
     """Capture one layer call in a trace after a warm-up call, and replay it once."""
     actual_start_tt = make_actual_start(mesh_device, actual_start)
     actual_end_tt = None if actual_end is None else make_actual_start(mesh_device, actual_end)
     trace = _LayerTrace(state=_allocate_state(layer))
     try:
-        warm_output, warm_state = _layer_call(layer, hidden, trace.state, actual_start_tt, actual_end_tt, slots)
+        warm_output, warm_state = layer.forward(hidden, trace.state, actual_start_tt, actual_end_tt)
         ttnn.synchronize_device(mesh_device)
         ttnn.deallocate(warm_output)
-        if warm_state is not None:
-            deallocate_state(warm_state)
+        deallocate_state(warm_state)
 
         trace.trace_id = ttnn.begin_trace_capture(mesh_device, cq_id=0)
-        trace.output, trace.next_state = _layer_call(layer, hidden, trace.state, actual_start_tt, actual_end_tt, slots)
+        trace.output, trace.next_state = layer.forward(hidden, trace.state, actual_start_tt, actual_end_tt)
         ttnn.end_trace_capture(mesh_device, trace.trace_id, cq_id=0)
         ttnn.execute_trace(mesh_device, trace.trace_id, cq_id=0, blocking=False)
         ttnn.synchronize_device(mesh_device)
@@ -320,9 +255,8 @@ def _trace_wall_samples_ms(
     validate_first_replay: Callable[[KdaState, ttnn.Tensor], dict[str, float]] | None = None,
     actual_start: int = 0,
     actual_end: int | None = None,
-    slots: _Slots | None = None,
 ) -> tuple[list[float], dict[str, float] | None]:
-    trace = _capture_layer_trace(mesh_device, layer, hidden, actual_start, actual_end, slots)
+    trace = _capture_layer_trace(mesh_device, layer, hidden, actual_start, actual_end)
     try:
         validation = (
             validate_first_replay(
@@ -352,10 +286,9 @@ def _trace_device_samples_ms(
     hidden: ttnn.Tensor,
     actual_start: int = 0,
     actual_end: int | None = None,
-    slots: _Slots | None = None,
 ) -> tuple[list[float], list[float]]:
     """Return the host wall and device time (ms) of single profiled trace replays, never back to back."""
-    trace = _capture_layer_trace(mesh_device, layer, hidden, actual_start, actual_end, slots)
+    trace = _capture_layer_trace(mesh_device, layer, hidden, actual_start, actual_end)
     try:
         _profile_replay(mesh_device, trace.trace_id)  # exclude first-replay jitter
         samples = [_profile_replay(mesh_device, trace.trace_id) for _ in range(_TIMING_SAMPLES)]
@@ -365,12 +298,7 @@ def _trace_device_samples_ms(
 
 
 def _untraced_wall_samples_ms(
-    mesh_device: ttnn.MeshDevice,
-    layer: ttKDA,
-    hidden: ttnn.Tensor,
-    actual_start: int,
-    actual_end: int | None,
-    slots: _Slots | None = None,
+    mesh_device: ttnn.MeshDevice, layer: ttKDA, hidden: ttnn.Tensor, actual_start: int, actual_end: int | None
 ) -> list[float]:
     """_trace_wall_samples_ms with layer.forward() in place of the trace replay."""
     actual_start_tt = make_actual_start(mesh_device, actual_start)
@@ -378,10 +306,9 @@ def _untraced_wall_samples_ms(
     state = _allocate_state(layer)
 
     def call() -> None:
-        output, next_state = _layer_call(layer, hidden, state, actual_start_tt, actual_end_tt, slots)
+        output, next_state = layer.forward(hidden, state, actual_start_tt, actual_end_tt)
         ttnn.deallocate(output)
-        if next_state is not None:
-            deallocate_state(next_state)
+        deallocate_state(next_state)
 
     try:
         call()
@@ -404,9 +331,9 @@ def _untraced_wall_samples_ms(
         pytest.param(
             (2, 4),
             0,
-            kda_device_params((2, 4), l1_small_size=_L1_SMALL_SIZE),
+            fabric_1d_device_params(l1_small_size=_L1_SMALL_SIZE),
             marks=pytest.mark.requires_mesh_topology(mesh_shape=(2, 4), topology="mesh-2x4"),
-            id="SP4xTP2-fabric-2d",
+            id="SP4xTP2-fabric-1d",
         ),
         pytest.param(
             (8, 1),
@@ -418,9 +345,9 @@ def _untraced_wall_samples_ms(
         pytest.param(
             (2, 2),
             1,
-            kda_device_params((2, 2), l1_small_size=_L1_SMALL_SIZE),
+            fabric_1d_device_params(l1_small_size=_L1_SMALL_SIZE),
             marks=pytest.mark.requires_mesh_topology(mesh_shape=(2, 2), topology="mesh-2x2"),
-            id="SP2xTP2-fabric-2d",
+            id="SP2xTP2-fabric-1d",
         ),
         pytest.param(
             (4, 1),
@@ -432,7 +359,7 @@ def _untraced_wall_samples_ms(
         pytest.param(
             (8, 4),
             1,
-            kda_device_params((8, 4), l1_small_size=_L1_SMALL_SIZE),
+            torus_xy_device_params(l1_small_size=_L1_SMALL_SIZE),
             marks=pytest.mark.requires_mesh_topology(mesh_shape=(8, 4), topology="mesh-8x4"),
             id="SP8xTP4-torus-xy",
         ),
@@ -447,11 +374,7 @@ def test_synthetic_kimi_k3_perf(
     device_params: dict,
     traced: bool,
 ) -> None:
-    """Gate checkpoint-free production K3 latency on LoudBox, QuietBox and Galaxy.
-
-    The gated call is the model's whole per-chunk KDA layer, ttKDA.forward_slot on the TP-sharded residual: import
-    the slot's carry from the state slab, TP all-gather, KDA, output projection + reduce-scatter, export.
-    """
+    """Gate checkpoint-free production K3 latency on LoudBox, QuietBox and Galaxy."""
     mesh_shape = tuple(mesh_device.shape)
     sequence_parallel_axis = 1 - tensor_parallel_axis
     layout = f"SP{mesh_shape[sequence_parallel_axis]}xTP{mesh_shape[tensor_parallel_axis]}"
@@ -459,7 +382,7 @@ def test_synthetic_kimi_k3_perf(
     if layout == "SP8xTP4":
         require_high_power(f"kimi_k3 KDA {layout} perf")
     device_reference_ms = None if report_only else _device_perf_reference_ms(layout)
-    reference_ms = None if report_only or device_reference_ms is not None else _perf_reference_ms(layout, traced)
+    reference_ms = None if report_only or device_reference_ms is not None else _perf_reference_ms(layout)
     sequence, num_heads, actual_start = {
         "SP8xTP4": (PREFILL_CHUNK_TOKENS, None, _GALAXY_ACTUAL_START),
         "SP4xTP2": (_LOUDBOX_SEQUENCE, _LOUDBOX_NUM_HEADS, _LOUDBOX_ACTUAL_START),
@@ -476,9 +399,7 @@ def test_synthetic_kimi_k3_perf(
         case,
         tensor_parallel_axis=tensor_parallel_axis,
         cache_weights=False,
-        shard_hidden_over_tp=True,
     )
-    slots = _Slots.allocate(mesh_device, case.config, layer, tensor_parallel_axis)
     assert (layer.active_seq_len_local, layer.config.num_heads) == (
         PREFILL_CHUNK_TOKENS_PER_CHIP,
         _GALAXY_HEADS_PER_CHIP,
@@ -487,23 +408,16 @@ def test_synthetic_kimi_k3_perf(
         require_realtime_profiler(f"the {layout} device-time gate")
     if device_reference_ms is not None:
         samples_ms, device_samples_ms = _trace_device_samples_ms(
-            mesh_device, layer, hidden_tt, actual_start=actual_start, actual_end=actual_end, slots=slots
+            mesh_device, layer, hidden_tt, actual_start=actual_start, actual_end=actual_end
         )
     elif traced:
         samples_ms, _ = _trace_wall_samples_ms(
-            mesh_device,
-            layer,
-            hidden_tt,
-            _REPETITIONS,
-            actual_start=actual_start,
-            actual_end=actual_end,
-            slots=slots,
+            mesh_device, layer, hidden_tt, _REPETITIONS, actual_start=actual_start, actual_end=actual_end
         )
         device_samples_ms = None
     else:
-        samples_ms = _untraced_wall_samples_ms(mesh_device, layer, hidden_tt, actual_start, actual_end, slots)
+        samples_ms = _untraced_wall_samples_ms(mesh_device, layer, hidden_tt, actual_start, actual_end)
         device_samples_ms = None
-    slots.deallocate()
     median_wall_ms = statistics.median(samples_ms)
     median_device_ms = None if device_samples_ms is None else statistics.median(device_samples_ms)
     result = {
@@ -515,13 +429,12 @@ def test_synthetic_kimi_k3_perf(
         "actual_start": actual_start,
         "actual_end": actual_end,
         "weights": "deterministic synthetic",
-        "scope": "forward_slot: import + TP all-gather + KDA + reduce-scatter + export",
         "repetitions": 1 if device_reference_ms is not None else _REPETITIONS,
         "trace_wall_samples_ms": samples_ms,
         "median_trace_wall_ms": median_wall_ms,
         "timing_sample_count": _TIMING_SAMPLES,
         "reference_trace_wall_ms": reference_ms,
-        "perf_margin_pct": _perf_margin(layout, traced) * 100.0,
+        "perf_margin_pct": _PERF_MARGIN * 100.0,
         "device_samples_ms": device_samples_ms,
         "median_device_ms": median_device_ms,
         "reference_device_ms": device_reference_ms,
@@ -533,7 +446,7 @@ def test_synthetic_kimi_k3_perf(
     if device_reference_ms is not None:
         gated_ms, gated_reference_ms, gated_margin = median_device_ms, device_reference_ms, _DEVICE_PERF_MARGIN
     else:
-        gated_ms, gated_reference_ms, gated_margin = median_wall_ms, reference_ms, _perf_margin(layout, traced)
+        gated_ms, gated_reference_ms, gated_margin = median_wall_ms, reference_ms, _PERF_MARGIN
     within_band = (
         abs(gated_ms - gated_reference_ms) <= gated_reference_ms * gated_margin if gated_reference_ms else None
     )
@@ -555,7 +468,7 @@ def test_synthetic_kimi_k3_perf(
     if device_reference_ms is not None:
         _assert_within_margin(f"{layout} median device", median_device_ms, device_reference_ms, _DEVICE_PERF_MARGIN)
     else:
-        _assert_within_margin(f"{layout} median trace wall", median_wall_ms, reference_ms, gated_margin)
+        _assert_within_margin(f"{layout} median trace wall", median_wall_ms, reference_ms, _PERF_MARGIN)
 
 
 @pytest.mark.parametrize(
@@ -566,7 +479,7 @@ def test_synthetic_kimi_k3_perf(
             (4, 1),
             0,
             ttnn.Topology.Ring,
-            kda_device_params((4, 1), l1_small_size=_L1_SMALL_SIZE),
+            fabric_1d_device_params(fabric_config=ttnn.FabricConfig.FABRIC_1D_RING, l1_small_size=_L1_SMALL_SIZE),
             marks=pytest.mark.requires_mesh_topology(mesh_shape=(4, 1), topology="ring"),
             id="TP4-ring",
         ),
@@ -576,7 +489,7 @@ def test_synthetic_kimi_k3_perf(
             (2, 4),
             1,
             ttnn.Topology.Linear,
-            kda_device_params((2, 4), l1_small_size=_L1_SMALL_SIZE),
+            fabric_1d_device_params(l1_small_size=_L1_SMALL_SIZE),
             marks=pytest.mark.requires_mesh_topology(mesh_shape=(2, 4), topology="mesh-2x4"),
             id="TP4-linear",
         ),

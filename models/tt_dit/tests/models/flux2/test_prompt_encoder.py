@@ -16,22 +16,22 @@ from .device_params import prompt_encoder_params_flux2
 
 
 @pytest.mark.parametrize(
-    ("mesh_device", "checkpoint_name"),
+    "mesh_device",
     [
-        pytest.param((2, 2), "black-forest-labs/FLUX.2-dev", id="2x2-dev"),
-        pytest.param((4, 8), "black-forest-labs/FLUX.2-dev", id="4x8-dev"),
-        pytest.param((2, 2), "black-forest-labs/FLUX.2-klein-4B", id="2x2-klein"),
+        pytest.param((2, 2), id="2x2"),
+        pytest.param((4, 8), id="4x8"),
     ],
-    indirect=["mesh_device"],
+    indirect=True,
 )
 @pytest.mark.parametrize(
     "device_params",
     [prompt_encoder_params_flux2],
     indirect=True,
 )
-def test_encode(mesh_device: ttnn.MeshDevice, checkpoint_name: str) -> None:
+def test_encode(mesh_device: ttnn.MeshDevice) -> None:
     tp_axis = 1
     sequence_length = 64
+    checkpoint_name = "black-forest-labs/FLUX.2-dev"
     prompts = ["A painting", "A futuristic city skyline at sunset during winter"]
 
     ccl_manager = CCLManager(mesh_device, topology=ttnn.Topology.Linear)

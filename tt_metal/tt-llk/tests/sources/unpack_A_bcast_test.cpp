@@ -225,7 +225,7 @@ void run_kernel(RUNTIME_PARAMETERS params)
         if constexpr (PERF_RUN_TYPE == PerfRunType::PACK_ISOLATE)
         {
         }
-        else if constexpr (PERF_RUN_TYPE == PerfRunType::UNPACK_ISOLATE && unpack_to_dest)
+        else if constexpr ((PERF_RUN_TYPE == PerfRunType::UNPACK_ISOLATE || PERF_RUN_TYPE == PerfRunType::L1_CONGESTION) && unpack_to_dest)
         {
             // Stand in for math's half of the unpack-to-dest handshake without copying: send the unpacker
             // each tile's Dest index through the mailbox and take the tile back through UNPACK_TO_DEST.
@@ -252,7 +252,7 @@ void run_kernel(RUNTIME_PARAMETERS params)
                 }
             }
         }
-        else if constexpr (PERF_RUN_TYPE == PerfRunType::UNPACK_ISOLATE)
+        else if constexpr (PERF_RUN_TYPE == PerfRunType::UNPACK_ISOLATE || PERF_RUN_TYPE == PerfRunType::L1_CONGESTION)
         {
             fake_src_valids<false /*set_valids*/, PERF_RUN_TYPE>(LOOP_FACTOR * NUM_BLOCKS * NUM_TILES_IN_BLOCK /*tiles*/, num_faces);
         }

@@ -1,5 +1,8 @@
 name: (triage) Aggregate Workflow Data
 on:
+  push:
+    branches:
+      - mchiou/0-aggregate-workflow-report
   schedule:
     - cron: "*/10 * * * *" # every 10 minutes
   workflow_dispatch:
@@ -33,10 +36,6 @@ on:
 jobs:
   fetch-data:
     runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      checks: read
-      contents: read
     outputs:
       cache-path: ${{ steps.fetch.outputs.cache-path }}
       commits-path: ${{ steps.fetch.outputs.commits-path }}
@@ -57,7 +56,7 @@ jobs:
       - name: Install fetch-workflow-data dependencies
         shell: bash
         working-directory: .github/actions/fetch-workflow-data
-        run: npm ci --ignore-scripts
+        run: npm install
       - name: Fetch workflow data
         id: fetch
         uses: ./.github/actions/fetch-workflow-data
@@ -164,9 +163,6 @@ jobs:
     needs: fetch-data
     if: always()
     runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
     outputs:
       has_failed_workflows: ${{ steps.set-outputs.outputs.has_failed_workflows }}
       has_regressions: ${{ steps.set-outputs.outputs.has_regressions }}
@@ -201,7 +197,7 @@ jobs:
       - name: Install analyze-workflow-data dependencies
         shell: bash
         working-directory: .github/actions/analyze-workflow-data
-        run: npm ci --ignore-scripts
+        run: npm install
       - name: Download previous workflow data artifact (if any)
         if: ${{ steps.prev.outputs.run_id != '' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -291,8 +287,6 @@ jobs:
     # fetch-data is skipped (e.g. the workflow is triggered with no data).
     if: ${{ always() && needs.analyze-data.result == 'success' && needs.analyze-data.outputs.has_failed_workflows == 'true' }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     outputs:
       slack_ts: ${{ steps.slack-report.outputs.slack_ts }}
       slack_ts_map: ${{ steps.slack-report.outputs.slack_ts_map }}
@@ -353,7 +347,7 @@ jobs:
           sparse-checkout-cone-mode: true
       - name: Install dependencies
         working-directory: .github/actions/trigger-regression-analysis-for-regressions
-        run: npm ci --ignore-scripts
+        run: npm install
       - name: Download regression notification inputs
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:

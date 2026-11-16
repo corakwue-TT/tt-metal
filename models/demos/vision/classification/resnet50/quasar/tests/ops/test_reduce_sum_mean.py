@@ -27,7 +27,7 @@ import pytest
 import torch
 
 import ttnn
-from tt_py_test_utils_common.utils_for_testing import assert_with_pcc
+from tests.ttnn.utils_for_testing import assert_with_pcc
 
 PCC = 0.99
 

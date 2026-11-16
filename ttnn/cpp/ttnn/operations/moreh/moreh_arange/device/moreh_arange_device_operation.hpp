@@ -11,9 +11,9 @@ namespace ttnn::operations::moreh::moreh_arange {
 
 struct MorehArangeOperation {
     struct operation_attributes_t {
-        double start;
-        double end;
-        double step;
+        float start;
+        float end;
+        float step;
         bool untilize_out;
         ttnn::MeshDevice* mesh_device;
         const DataType dtype;
@@ -42,9 +42,9 @@ struct MorehArangeOperation {
 
 namespace ttnn::prim {
 ttnn::operations::moreh::moreh_arange::MorehArangeOperation::tensor_return_value_t moreh_arange(
-    double start,
-    double end,
-    double step,
+    float start,
+    float end,
+    float step,
     ttnn::MeshDevice* mesh_device,
     const std::optional<Tensor>& output,
     bool untilize_out,

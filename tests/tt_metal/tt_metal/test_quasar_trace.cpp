@@ -4,7 +4,7 @@
 
 #include "common/device_fixture.hpp"
 #include "context/metal_context.hpp"
-#include <tt-metalium/workload/specification/data_movement_hardware_config.hpp>
+#include "experimental/metal2_host_api/data_movement_hardware_config.hpp"
 
 #include <tt-metalium/allocator.hpp>
 #include <tt-metalium/device.hpp>
@@ -12,8 +12,8 @@
 #include <tt-metalium/host_api.hpp>
 #include <tt-metalium/mesh_trace_id.hpp>
 #include <tt-metalium/experimental/metal2_host_api/program.hpp>
-#include <tt-metalium/workload/run_args/program_run_args.hpp>
-#include <tt-metalium/workload/specification/program_spec.hpp>
+#include <tt-metalium/experimental/metal2_host_api/program_run_args.hpp>
+#include <tt-metalium/experimental/metal2_host_api/program_spec.hpp>
 #include <tt-metalium/math.hpp>
 #include <tt-metalium/tt_metal.hpp>
 
@@ -35,7 +35,7 @@ TEST_F(QuasarMeshDeviceSingleCardFixture, QuasarTraceSingleReplay) {
     }
 
     auto mesh_device = devices_[0];
-    const NodeCoord node{0, 0};
+    const experimental::NodeCoord node{0, 0};
 
     const uint32_t address = MetalContext::instance().hal().get_dev_addr(
         HalProgrammableCoreType::TENSIX, HalL1MemAddrType::DEFAULT_UNRESERVED);
@@ -44,28 +44,28 @@ TEST_F(QuasarMeshDeviceSingleCardFixture, QuasarTraceSingleReplay) {
     distributed::MeshCommandQueue& cq = mesh_device->mesh_command_queue();
     distributed::MeshCoordinateRange device_range = distributed::MeshCoordinateRange(mesh_device->shape());
 
-    const KernelSpecName DM_KERNEL{"dm_kernel"};
-    KernelSpec dm_kernel_spec{
+    const experimental::KernelSpecName DM_KERNEL{"dm_kernel"};
+    experimental::KernelSpec dm_kernel_spec{
         .unique_id = DM_KERNEL,
         .source = OVERRIDE_KERNEL_PREFIX "tests/tt_metal/tt_metal/test_kernels/dataflow/simple_l1_write.cpp",
         .num_threads = 2,
         .runtime_arg_schema = {.runtime_arg_names = {"address"}, .common_runtime_arg_names = {"value"}},
-        .hw_config = DataMovementHardwareConfig{},
+        .hw_config = experimental::DataMovementHardwareConfig{},
     };
-    WorkUnitSpec main_wu{.name = "main", .kernels = {DM_KERNEL}, .target_nodes = node};
-    ProgramSpec spec{.name = "trace_test", .kernels = {dm_kernel_spec}, .work_units = {main_wu}};
+    experimental::WorkUnitSpec main_wu{.name = "main", .kernels = {DM_KERNEL}, .target_nodes = node};
+    experimental::ProgramSpec spec{.name = "trace_test", .kernels = {dm_kernel_spec}, .work_units = {main_wu}};
 
     distributed::MeshWorkload workload;
-    workload.add_program(device_range, tt_metal::experimental::MakeProgramFromSpec(*mesh_device, spec));
+    workload.add_program(device_range, experimental::MakeProgramFromSpec(*mesh_device, spec));
     Program& prog = workload.get_programs().at(device_range);
 
-    ProgramRunArgs params;
-    params.kernel_run_args = {ProgramRunArgs::KernelRunArgs{
+    experimental::ProgramRunArgs params;
+    params.kernel_run_args = {experimental::ProgramRunArgs::KernelRunArgs{
         .kernel = DM_KERNEL,
-        .runtime_arg_values = MakeRuntimeArgsForSingleNode(node, {{"address", address}}),
+        .runtime_arg_values = experimental::MakeRuntimeArgsForSingleNode(node, {{"address", address}}),
         .common_runtime_arg_values = {{"value", value}},
     }};
-    tt_metal::experimental::SetProgramRunArgs(prog, params);
+    experimental::SetProgramRunArgs(prog, params);
 
     // Warm up
     std::vector<uint32_t> zeros(1, 0);
@@ -97,7 +97,7 @@ TEST_F(QuasarMeshDeviceSingleCardFixture, QuasarTraceMultipleReplays) {
     }
 
     auto mesh_device = devices_[0];
-    const NodeCoord node{0, 0};
+    const experimental::NodeCoord node{0, 0};
 
     const uint32_t address = MetalContext::instance().hal().get_dev_addr(
         HalProgrammableCoreType::TENSIX, HalL1MemAddrType::DEFAULT_UNRESERVED);
@@ -106,28 +106,29 @@ TEST_F(QuasarMeshDeviceSingleCardFixture, QuasarTraceMultipleReplays) {
     distributed::MeshCommandQueue& cq = mesh_device->mesh_command_queue();
     distributed::MeshCoordinateRange device_range = distributed::MeshCoordinateRange(mesh_device->shape());
 
-    const KernelSpecName DM_KERNEL{"dm_kernel"};
-    KernelSpec dm_kernel_spec{
+    const experimental::KernelSpecName DM_KERNEL{"dm_kernel"};
+    experimental::KernelSpec dm_kernel_spec{
         .unique_id = DM_KERNEL,
         .source = OVERRIDE_KERNEL_PREFIX "tests/tt_metal/tt_metal/test_kernels/dataflow/simple_l1_write.cpp",
         .num_threads = 2,
         .runtime_arg_schema = {.runtime_arg_names = {"address"}, .common_runtime_arg_names = {"value"}},
-        .hw_config = DataMovementHardwareConfig{},
+        .hw_config = experimental::DataMovementHardwareConfig{},
     };
-    WorkUnitSpec main_wu{.name = "main", .kernels = {DM_KERNEL}, .target_nodes = node};
-    ProgramSpec spec{.name = "trace_multi_replay_test", .kernels = {dm_kernel_spec}, .work_units = {main_wu}};
+    experimental::WorkUnitSpec main_wu{.name = "main", .kernels = {DM_KERNEL}, .target_nodes = node};
+    experimental::ProgramSpec spec{
+        .name = "trace_multi_replay_test", .kernels = {dm_kernel_spec}, .work_units = {main_wu}};
 
     distributed::MeshWorkload workload;
-    workload.add_program(device_range, tt_metal::experimental::MakeProgramFromSpec(*mesh_device, spec));
+    workload.add_program(device_range, experimental::MakeProgramFromSpec(*mesh_device, spec));
     Program& prog = workload.get_programs().at(device_range);
 
-    ProgramRunArgs params;
-    params.kernel_run_args = {ProgramRunArgs::KernelRunArgs{
+    experimental::ProgramRunArgs params;
+    params.kernel_run_args = {experimental::ProgramRunArgs::KernelRunArgs{
         .kernel = DM_KERNEL,
-        .runtime_arg_values = MakeRuntimeArgsForSingleNode(node, {{"address", address}}),
+        .runtime_arg_values = experimental::MakeRuntimeArgsForSingleNode(node, {{"address", address}}),
         .common_runtime_arg_values = {{"value", value}},
     }};
-    tt_metal::experimental::SetProgramRunArgs(prog, params);
+    experimental::SetProgramRunArgs(prog, params);
 
     // Warm up
     std::vector<uint32_t> zeros(1, 0);
@@ -167,7 +168,7 @@ TEST_F(QuasarMeshDeviceSingleCardFixture, QuasarTraceDFBSizeOverride) {
     }
 
     auto mesh_device = devices_[0];
-    const NodeCoord node{0, 0};
+    const experimental::NodeCoord node{0, 0};
     constexpr uint32_t capture_a_entry_size = 1024;
     constexpr uint32_t capture_b_entry_size = 2048;
     constexpr uint32_t num_entries = 16;
@@ -182,43 +183,43 @@ TEST_F(QuasarMeshDeviceSingleCardFixture, QuasarTraceDFBSizeOverride) {
     distributed::MeshCommandQueue& cq = mesh_device->mesh_command_queue();
     distributed::MeshCoordinateRange device_range = distributed::MeshCoordinateRange(mesh_device->shape());
 
-    const DFBSpecName DFB{"dfb"};
-    const KernelSpecName PRODUCER{"producer"};
-    const KernelSpecName CONSUMER{"consumer"};
-    DataflowBufferSpec dfb_spec{
+    const experimental::DFBSpecName DFB{"dfb"};
+    const experimental::KernelSpecName PRODUCER{"producer"};
+    const experimental::KernelSpecName CONSUMER{"consumer"};
+    experimental::DataflowBufferSpec dfb_spec{
         .unique_id = DFB,
         .entry_size = capture_a_entry_size,
         .num_entries = num_entries,
         .data_format_metadata = tt::DataFormat::Float16_b,
     };
-    KernelSpec producer_spec{
+    experimental::KernelSpec producer_spec{
         .unique_id = PRODUCER,
         .source = OVERRIDE_KERNEL_PREFIX "tests/tt_metal/tt_metal/test_kernels/dataflow/dfb_extent_probe_dm.cpp",
         .num_threads = 1,
         .dfb_bindings =
             {{.dfb_spec_name = DFB,
               .accessor_name = "out",
-              .endpoint_type = DFBEndpointType::PRODUCER,
-              .access_pattern = DFBAccessPattern::STRIDED}},
+              .endpoint_type = experimental::DFBEndpointType::PRODUCER,
+              .access_pattern = experimental::DFBAccessPattern::STRIDED}},
         .compile_time_args = {{"num_tc_snapshots", 1u}, {"rotate_tc", 0u}, {"credits_to_post", 0u}},
         .runtime_arg_schema = {.runtime_arg_names = {"result_l1_addr"}},
         .hw_config =
-            DataMovementHardwareConfig{
+            experimental::DataMovementHardwareConfig{
                 .config_2xx =
-                    DataMovementHardwareConfig::DataMovement2XXConfig{
+                    experimental::DataMovementHardwareConfig::DataMovement2XXConfig{
                         .disable_dfb_implicit_sync_for = {DFB},
                     },
             },
     };
-    KernelSpec consumer_spec{
+    experimental::KernelSpec consumer_spec{
         .unique_id = CONSUMER,
         .source = OVERRIDE_KERNEL_PREFIX "tests/tt_metal/tt_metal/test_kernels/compute/dfb_extent_probe_compute.cpp",
         .num_threads = 1,
         .dfb_bindings =
             {{.dfb_spec_name = DFB,
               .accessor_name = "in",
-              .endpoint_type = DFBEndpointType::CONSUMER,
-              .access_pattern = DFBAccessPattern::STRIDED}},
+              .endpoint_type = experimental::DFBEndpointType::CONSUMER,
+              .access_pattern = experimental::DFBAccessPattern::STRIDED}},
         .compile_time_args =
             {{"num_tc_snapshots", 1u},
              {"rotate_tc", 0u},
@@ -226,10 +227,10 @@ TEST_F(QuasarMeshDeviceSingleCardFixture, QuasarTraceDFBSizeOverride) {
              {"drain_last_tc_credit", 0u},
              {"num_producers", 1u}},
         .runtime_arg_schema = {.runtime_arg_names = {"result_l1_addr"}},
-        .hw_config = ComputeHardwareConfig{},
+        .hw_config = experimental::ComputeHardwareConfig{},
     };
-    WorkUnitSpec main_wu{.name = "main", .kernels = {PRODUCER, CONSUMER}, .target_nodes = node};
-    ProgramSpec spec{
+    experimental::WorkUnitSpec main_wu{.name = "main", .kernels = {PRODUCER, CONSUMER}, .target_nodes = node};
+    experimental::ProgramSpec spec{
         .name = "trace_dfb_size_override",
         .kernels = {producer_spec, consumer_spec},
         .dataflow_buffers = {dfb_spec},
@@ -237,21 +238,23 @@ TEST_F(QuasarMeshDeviceSingleCardFixture, QuasarTraceDFBSizeOverride) {
     };
 
     distributed::MeshWorkload workload;
-    workload.add_program(device_range, tt_metal::experimental::MakeProgramFromSpec(*mesh_device, spec));
+    workload.add_program(device_range, experimental::MakeProgramFromSpec(*mesh_device, spec));
     Program& prog = workload.get_programs().at(device_range);
 
-    ProgramRunArgs params;
+    experimental::ProgramRunArgs params;
     params.kernel_run_args = {
-        ProgramRunArgs::KernelRunArgs{
+        experimental::ProgramRunArgs::KernelRunArgs{
             .kernel = PRODUCER,
-            .runtime_arg_values = MakeRuntimeArgsForSingleNode(node, {{"result_l1_addr", producer_record_address}}),
+            .runtime_arg_values =
+                experimental::MakeRuntimeArgsForSingleNode(node, {{"result_l1_addr", producer_record_address}}),
         },
-        ProgramRunArgs::KernelRunArgs{
+        experimental::ProgramRunArgs::KernelRunArgs{
             .kernel = CONSUMER,
-            .runtime_arg_values = MakeRuntimeArgsForSingleNode(node, {{"result_l1_addr", consumer_record_address}}),
+            .runtime_arg_values =
+                experimental::MakeRuntimeArgsForSingleNode(node, {{"result_l1_addr", consumer_record_address}}),
         },
     };
-    tt_metal::experimental::SetProgramRunArgs(prog, params);
+    experimental::SetProgramRunArgs(prog, params);
 
     std::vector<uint32_t> zeros(2 * extent_record_bytes / sizeof(uint32_t), 0);
     auto run_and_expect_entry_size = [&](auto run, uint32_t expected_entry_size) {
@@ -276,7 +279,7 @@ TEST_F(QuasarMeshDeviceSingleCardFixture, QuasarTraceDFBSizeOverride) {
 
     // No untraced run after the override, so trace B's capture is the first to serialize the new size.
     params.dfb_run_overrides.push_back({.dfb = DFB, .entry_size = capture_b_entry_size});
-    tt_metal::experimental::SetProgramRunArgs(prog, params);
+    experimental::SetProgramRunArgs(prog, params);
     const distributed::MeshTraceId trace_id_b = capture_trace();
 
     run_and_expect_entry_size([&] { mesh_device->replay_mesh_trace(cq, trace_id_a, true); }, capture_a_entry_size);
@@ -293,7 +296,7 @@ TEST_F(QuasarMultiCQMeshDeviceSingleCardFixture, QuasarTraceMultipleReplaysAcros
     }
 
     auto mesh_device = devices_[0];
-    const NodeCoord node{0, 0};
+    const experimental::NodeCoord node{0, 0};
 
     const uint32_t address_0 = MetalContext::instance().hal().get_dev_addr(
         HalProgrammableCoreType::TENSIX, HalL1MemAddrType::DEFAULT_UNRESERVED);
@@ -306,25 +309,25 @@ TEST_F(QuasarMultiCQMeshDeviceSingleCardFixture, QuasarTraceMultipleReplaysAcros
 
     auto make_workload = [&](uint32_t address, uint32_t value, const char* kernel_id) {
         distributed::MeshWorkload wl;
-        const KernelSpecName DM_KERNEL{kernel_id};
-        KernelSpec dm_kernel_spec{
+        const experimental::KernelSpecName DM_KERNEL{kernel_id};
+        experimental::KernelSpec dm_kernel_spec{
             .unique_id = DM_KERNEL,
             .source = OVERRIDE_KERNEL_PREFIX "tests/tt_metal/tt_metal/test_kernels/dataflow/simple_l1_write.cpp",
             .num_threads = 2,
             .runtime_arg_schema = {.runtime_arg_names = {"address"}, .common_runtime_arg_names = {"value"}},
-            .hw_config = DataMovementHardwareConfig{},
+            .hw_config = experimental::DataMovementHardwareConfig{},
         };
-        WorkUnitSpec main_wu{.name = "main", .kernels = {DM_KERNEL}, .target_nodes = node};
-        ProgramSpec spec{
+        experimental::WorkUnitSpec main_wu{.name = "main", .kernels = {DM_KERNEL}, .target_nodes = node};
+        experimental::ProgramSpec spec{
             .name = std::string("trace_across_cqs_") + kernel_id, .kernels = {dm_kernel_spec}, .work_units = {main_wu}};
-        Program program = tt_metal::experimental::MakeProgramFromSpec(*mesh_device, spec);
-        ProgramRunArgs params;
-        params.kernel_run_args = {ProgramRunArgs::KernelRunArgs{
+        Program program = experimental::MakeProgramFromSpec(*mesh_device, spec);
+        experimental::ProgramRunArgs params;
+        params.kernel_run_args = {experimental::ProgramRunArgs::KernelRunArgs{
             .kernel = DM_KERNEL,
-            .runtime_arg_values = MakeRuntimeArgsForSingleNode(node, {{"address", address}}),
+            .runtime_arg_values = experimental::MakeRuntimeArgsForSingleNode(node, {{"address", address}}),
             .common_runtime_arg_values = {{"value", value}},
         }};
-        tt_metal::experimental::SetProgramRunArgs(program, params);
+        experimental::SetProgramRunArgs(program, params);
         wl.add_program(device_range, std::move(program));
         return wl;
     };

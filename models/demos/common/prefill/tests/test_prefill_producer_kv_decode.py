@@ -98,9 +98,6 @@ class _Table:
         assert size == 4352
         return self.pages[address]
 
-    def read_batch(self, unique_ids, addresses, sizes):
-        return b"".join(self.read(uid, address, size) for uid, address, size in zip(unique_ids, addresses, sizes))
-
 
 @pytest.fixture
 def gqa_trace(tmp_path, monkeypatch):
@@ -135,7 +132,6 @@ def gqa_trace(tmp_path, monkeypatch):
                             tensor[0, head, position : position + 32]
                         )
         monkeypatch.setattr(producer.ttnn.experimental.disaggregation, "read_dram_umd", table.read)
-        monkeypatch.setattr(producer.ttnn.experimental.disaggregation, "read_dram_umd_batch", table.read_batch)
         return table, {(0, head): head for head in range(heads)}, tmp_path
 
     return make

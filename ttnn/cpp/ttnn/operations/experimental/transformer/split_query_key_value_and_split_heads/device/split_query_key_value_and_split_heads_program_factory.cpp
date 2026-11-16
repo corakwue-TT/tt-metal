@@ -7,15 +7,15 @@
 
 #include <tt-metalium/host_api.hpp>
 #include <tt-metalium/constants.hpp>
-#include <tt-metalium/workload/specification/program_spec.hpp>
-#include <tt-metalium/workload/run_args/program_run_args.hpp>
+#include <tt-metalium/experimental/metal2_host_api/program_spec.hpp>
+#include <tt-metalium/experimental/metal2_host_api/program_run_args.hpp>
 
 namespace ttnn::experimental::prim {
 
 using namespace tt::constants;
 using namespace tt;
 using namespace tt_metal;
-using namespace tt::tt_metal;
+using namespace tt::tt_metal::experimental;
 
 ttnn::device_operation::ProgramArtifacts SplitFusedQKVAndSplitHeadsProgramFactory::create_program_artifacts(
     const SplitQueryKeyValueAndSplitHeadsParams& operation_attributes,
@@ -41,8 +41,8 @@ ttnn::device_operation::ProgramArtifacts SplitFusedQKVAndSplitHeadsProgramFactor
     tt::DataFormat data_format = tt_metal::datatype_to_dataformat_converter(a.dtype());
 
     uint32_t single_tile_size = tt::tile_size(data_format);
-    const auto* in0_buffer = &a.mesh_buffer();
-    TT_ASSERT(in0_buffer->device_local_size() % single_tile_size == 0);
+    tt_metal::Buffer* in0_buffer = a.buffer();
+    TT_ASSERT(in0_buffer->size() % single_tile_size == 0);
 
     ////////////////////////////////////////////////////////////////////////////
     //                      TM Parameters Setup
@@ -83,11 +83,11 @@ ttnn::device_operation::ProgramArtifacts SplitFusedQKVAndSplitHeadsProgramFactor
     ttnn::Tensor& k = output[1];
     ttnn::Tensor& v = output[2];
 
-    const auto* q_buffer = &q.mesh_buffer();
+    tt_metal::Buffer* q_buffer = q.buffer();
     TT_ASSERT(q_buffer != nullptr, "Output q buffer should be allocated on device!");
-    const auto* k_buffer = &k.mesh_buffer();
+    tt_metal::Buffer* k_buffer = k.buffer();
     TT_ASSERT(k_buffer != nullptr, "Output k buffer should be allocated on device!");
-    const auto* v_buffer = &v.mesh_buffer();
+    tt_metal::Buffer* v_buffer = v.buffer();
     TT_ASSERT(v_buffer != nullptr, "Output v buffer should be allocated on device!");
 
     ////////////////////////////////////////////////////////////////////////////

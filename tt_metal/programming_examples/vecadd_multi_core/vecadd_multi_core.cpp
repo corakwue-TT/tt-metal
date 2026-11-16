@@ -111,7 +111,7 @@ int main(int argc, char** argv) {
 
     distributed::MeshWorkload workload;
     distributed::MeshCoordinateRange device_range = distributed::MeshCoordinateRange(mesh_device->shape());
-    Program program = CreateProgram(*mesh_device);
+    Program program = CreateProgram();
 
     distributed::MeshCommandQueue& cq = mesh_device->mesh_command_queue();
 

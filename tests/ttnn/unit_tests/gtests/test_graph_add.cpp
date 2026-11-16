@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <boost/move/utility_core.hpp>
 #include <fmt/base.h>
 #include <nlohmann/json.hpp>
 #include <cstddef>

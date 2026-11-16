@@ -22,8 +22,7 @@ struct ReshapeCodegenDeviceOperation {
     using program_factory_t = std::variant<
         ReshapeCodegenRMProgramFactory,
         ReshapeCodegenTileRowsProgramFactory,
-        ReshapeCodegenTileMappedProgramFactory,
-        ReshapeCodegenLcmProgramFactory>;
+        ReshapeCodegenTileMappedProgramFactory>;
 
     static program_factory_t select_program_factory(
         const operation_attributes_t& operation_attributes, const tensor_args_t& tensor_args);

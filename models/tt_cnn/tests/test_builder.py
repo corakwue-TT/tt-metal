@@ -24,7 +24,7 @@ from models.tt_cnn.tt.builder import (
     WidthShardedStrategyConfiguration,
     WidthSliceStrategyConfiguration,
 )
-from tt_py_test_utils_common.utils_for_testing import assert_with_pcc
+from tests.ttnn.utils_for_testing import assert_with_pcc
 
 DEVICE_PARAMS = {"l1_small_size": 32768}
 PCC_THRESHOLD = 0.999
@@ -629,9 +629,7 @@ def test_conv2d_slicing_validation_errors(device):
     """Test that validation errors are raised correctly for Conv2D slicing"""
 
     # Test channel slicing with non-divisible channels
-    with pytest.raises(  # allow-pytest.raises: host-side check
-        ValueError, match="Channel slicing requires num_slices > 1"
-    ):
+    with pytest.raises(ValueError, match="Channel slicing requires num_slices > 1"):
         ChannelSliceStrategyConfiguration(num_slices=1)
 
 
@@ -640,9 +638,7 @@ def test_pool2d_slicing_validation_errors(device):
     """Test that validation errors are raised correctly for MaxPool2d slicing"""
 
     # Test that height/width slicing raises error
-    with pytest.raises(  # allow-pytest.raises: host-side check
-        ValueError, match="Height and Width slicing are not supported"
-    ):
+    with pytest.raises(ValueError, match="Height and Width slicing are not supported"):
         MaxPool2dConfiguration(
             input_height=16,
             input_width=16,
@@ -652,9 +648,7 @@ def test_pool2d_slicing_validation_errors(device):
             slice_strategy=HeightSliceStrategyConfiguration(num_slices=2),
         )
 
-    with pytest.raises(  # allow-pytest.raises: host-side check
-        ValueError, match="Height and Width slicing are not supported"
-    ):
+    with pytest.raises(ValueError, match="Height and Width slicing are not supported"):
         MaxPool2dConfiguration(
             input_height=16,
             input_width=16,
@@ -665,9 +659,7 @@ def test_pool2d_slicing_validation_errors(device):
         )
 
     # Test that channels not divisible by num_slices raises error
-    with pytest.raises(  # allow-pytest.raises: host-side check
-        ValueError, match="must be divisible by number of slices"
-    ):
+    with pytest.raises(ValueError, match="must be divisible by number of slices"):
         MaxPool2dConfiguration(
             input_height=16,
             input_width=16,
@@ -683,9 +675,7 @@ def test_upsample_slicing_validation_errors(device):
     """Test that validation errors are raised correctly for Upsample configuration"""
 
     # Test that height/width slicing raises error
-    with pytest.raises(  # allow-pytest.raises: host-side check
-        ValueError, match="Height and Width slicing are not supported"
-    ):
+    with pytest.raises(ValueError, match="Height and Width slicing are not supported"):
         UpsampleConfiguration(
             input_height=16,
             input_width=16,
@@ -695,9 +685,7 @@ def test_upsample_slicing_validation_errors(device):
             slice_strategy=HeightSliceStrategyConfiguration(num_slices=2),
         )
 
-    with pytest.raises(  # allow-pytest.raises: host-side check
-        ValueError, match="Height and Width slicing are not supported"
-    ):
+    with pytest.raises(ValueError, match="Height and Width slicing are not supported"):
         UpsampleConfiguration(
             input_height=16,
             input_width=16,
@@ -708,9 +696,7 @@ def test_upsample_slicing_validation_errors(device):
         )
 
     # Test that channels not divisible by num_slices raises error
-    with pytest.raises(  # allow-pytest.raises: host-side check
-        ValueError, match="must be divisible by number of slices"
-    ):
+    with pytest.raises(ValueError, match="must be divisible by number of slices"):
         UpsampleConfiguration(
             input_height=16,
             input_width=16,
@@ -721,7 +707,7 @@ def test_upsample_slicing_validation_errors(device):
         )
 
     # Test invalid mode
-    with pytest.raises(ValueError, match="Mode must be one of"):  # allow-pytest.raises: host-side check
+    with pytest.raises(ValueError, match="Mode must be one of"):
         UpsampleConfiguration(
             input_height=16,
             input_width=16,

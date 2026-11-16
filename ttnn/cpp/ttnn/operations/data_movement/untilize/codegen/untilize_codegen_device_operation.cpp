@@ -14,7 +14,6 @@
 #include "untilize_codegen_cb_plan.hpp"
 
 #include <tt_stl/reflection.hpp>
-#include <tt-metalium/experimental/tensor_layout_apis_with_custom_alignment.hpp>
 
 namespace ttnn::prim {
 
@@ -57,7 +56,7 @@ UntilizeCodegenDeviceOperation::spec_return_value_t UntilizeCodegenDeviceOperati
     // tile-rows), with only the logical_shape metadata cropping it back down on read.
     return TensorSpec(
         logical_shape,
-        tt::tt_metal::experimental::tensor_layout_from_padded_shape(
+        TensorLayout::fromPaddedShape(
             output_dtype,
             PageConfig(Layout::ROW_MAJOR),
             operation_attributes.output_mem_config,

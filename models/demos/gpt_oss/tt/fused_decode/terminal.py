@@ -489,27 +489,19 @@ class FusedDecodeSampling(TTSampling):
         self._force_argmax_sampling = False
         self._params_key = None
 
-    def reset_params(
-        self, k, p, temp, enable_log_probs=None, num_logprobs=None, empty_slots=None, log_probs_enable_temperature=None
-    ):
+    def reset_params(self, k, p, temp, enable_log_probs=None, num_logprobs=None, empty_slots=None):
         """Re-upload the parameter tensors only when the request parameters changed (the generator may reload the
         same parameters every step). TTSampling.reset_params skips the upload for force-argmax requests; the stock
         path (prefill sampling) still reads k / p / temp then, so upload them for every change and set the
         force-argmax flag afterwards."""
-        key = repr((k, p, temp, enable_log_probs, num_logprobs, empty_slots, log_probs_enable_temperature))
+        key = repr((k, p, temp, enable_log_probs, num_logprobs, empty_slots))
         if key == self._params_key:
             return
         allow = self._allow_force_argmax_sampling
         self._allow_force_argmax_sampling = False
         try:
             super().reset_params(
-                k,
-                p,
-                temp,
-                enable_log_probs=enable_log_probs,
-                num_logprobs=num_logprobs,
-                empty_slots=empty_slots,
-                log_probs_enable_temperature=log_probs_enable_temperature,
+                k, p, temp, enable_log_probs=enable_log_probs, num_logprobs=num_logprobs, empty_slots=empty_slots
             )
         finally:
             self._allow_force_argmax_sampling = allow

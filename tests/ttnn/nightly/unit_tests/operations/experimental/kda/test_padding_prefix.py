@@ -32,7 +32,10 @@ def test_padding_prefix_empty_and_partial_groups(mesh_device, width):
     end = make_actual_start(mesh_device, 512)
 
     def run():
-        return ttnn.experimental.kda.affine_exclusive_scan(
+        reduced = ttnn.experimental.kda.reduce_affine_transforms(
+            summaries_tt, 4, actual_start=start, actual_end=end, local_rows=256, sequence_parallel_axis=0
+        )
+        entries = ttnn.experimental.kda.affine_exclusive_scan(
             summaries_tt,
             initial_tt,
             4,
@@ -42,11 +45,13 @@ def test_padding_prefix_empty_and_partial_groups(mesh_device, width):
             sequence_parallel_axis=0,
             tail_entry_states=initial_tt,
         )
+        return (*reduced, entries)
 
     for _ in range(2):
-        ttnn.deallocate(run())
+        for tensor in run():
+            ttnn.deallocate(tensor)
     trace = ttnn.begin_trace_capture(mesh_device, cq_id=0)
-    entries = run()
+    outputs = run()
     ttnn.end_trace_capture(mesh_device, trace, cq_id=0)
     try:
         # Hand-verifiable active group counts, rank 0 then rank 1.
@@ -55,15 +60,18 @@ def test_padding_prefix_empty_and_partial_groups(mesh_device, width):
             ttnn.copy(source, end)
             ttnn.deallocate(source)
             ttnn.execute_trace(mesh_device, trace, cq_id=0, blocking=True)
-            shards = [ttnn.to_torch(t).float() for t in ttnn.get_device_tensors(entries)]
+            shards = [[ttnn.to_torch(t).float() for t in ttnn.get_device_tensors(out)] for out in outputs]
             for device_index in range(8):
                 active = counts[device_index // 4]
+                # 0, 1, 1+2, 1+2+3, 1+2+3+4; no model formula copied here.
+                total = (0, 1, 3, 6, 10)[active]
+                torch.testing.assert_close(shards[0][device_index], eye.repeat(2, 1, 1), rtol=0, atol=0)
+                torch.testing.assert_close(shards[1][device_index], (total * eye).repeat(2, 1, 1), rtol=0, atol=0)
                 for head in range(2):
                     for group in range(active):
-                        # 0, 1, 1+2, 1+2+3; no model formula copied here.
                         expected = initial[head] + (0, 1, 3, 6)[group] * eye
-                        torch.testing.assert_close(shards[device_index][head * 4 + group], expected, rtol=0, atol=0)
+                        torch.testing.assert_close(shards[2][device_index][head * 4 + group], expected, rtol=0, atol=0)
     finally:
         ttnn.release_trace(mesh_device, trace)
-        for tensor in (entries, summaries_tt, initial_tt, start, end):
+        for tensor in (*outputs, summaries_tt, initial_tt, start, end):
             ttnn.deallocate(tensor)

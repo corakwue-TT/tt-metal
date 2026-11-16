@@ -84,12 +84,12 @@ def _ref_rows(ref):
     return rows
 
 
-def _occupancy_lines(ref, ref_name=_REF):
+def _occupancy_lines(ref):
     occ = [(k, ref[k]) for k in ("balance", "bottleneck_saturation", "global_occupancy") if k in ref]
     if not occ:
         return []
     # Occupancy needs a pipeline, so only the multi-rank config reports it.
-    return ["", f"{ref_name} pipeline occupancy:", *[f"  {k:<21} = {v:.4f}" for k, v in occ]]
+    return ["", f"{_REF} pipeline occupancy:", *[f"  {k:<21} = {v:.4f}" for k, v in occ]]
 
 
 def _table(headers, rows):
@@ -102,9 +102,9 @@ def _table(headers, rows):
     return [sep, render(headers), sep, *[render(r) for r in rows], sep]
 
 
-def _comparable(base, ref, ref_name=_REF, base_name=_BASE):
+def _comparable(base, ref):
     if base.get("chunk_size") != ref.get("chunk_size"):
-        return f"chunk_size differs ({base_name}={base.get('chunk_size')}, {ref_name}={ref.get('chunk_size')})"
+        return f"chunk_size differs ({_BASE}={base.get('chunk_size')}, {_REF}={ref.get('chunk_size')})"
     return None
 
 
@@ -131,20 +131,9 @@ def main():
     ap.add_argument(
         "--sc4-only",
         action="store_true",
-        help=f"report the --ref config alone, for a model whose {_BASE} leg runs a smaller model and so is no baseline",
-    )
-    ap.add_argument(
-        "--ref",
-        default=_REF,
-        help=f"the config to report (default {_REF}); e.g. sc4_8x4 for Kimi-K3 as 4 stages of 8x4",
-    )
-    ap.add_argument(
-        "--base",
-        default=_BASE,
-        help=f"the config the gain is over (default {_BASE}); e.g. sc1_8x4 for GLM-5.3's MTP legs, which run 8x4",
+        help=f"report {_REF} alone, for a model whose {_BASE} leg runs a smaller model and so is no baseline",
     )
     args = ap.parse_args()
-    ref_cfg, base_cfg = args.ref, args.base
 
     lines = []
     by_model = _load(args.metrics_dir) if os.path.isdir(args.metrics_dir) else {}
@@ -155,20 +144,20 @@ def main():
         lines.append(f"No metrics sidecars found {which}under {args.metrics_dir}; nothing to compare.")
     for model in sorted(by_model):
         configs = by_model[model]
-        base, ref = configs.get(base_cfg) or {}, configs.get(ref_cfg) or {}
+        base, ref = configs.get(_BASE) or {}, configs.get(_REF) or {}
         lines.append(f"#### {model}")
         lines.append("")
         if args.sc4_only:
             if not ref:
-                lines.append(f"{ref_cfg} did not report this run; nothing to show")
+                lines.append(f"{_REF} did not report this run; nothing to show")
                 lines.append("")
                 continue
             lines.append("```text")
             lines.append(
-                f"request: {ref_cfg} {ref['num_chunks']} chunks x {ref['chunk_size']} tok = {ref['max_seq']:,} tok"
+                f"request: {_REF} {ref['num_chunks']} chunks x {ref['chunk_size']} tok = {ref['max_seq']:,} tok"
             )
-            lines += _table(["metric", ref_cfg], _ref_rows(ref))
-            lines += _occupancy_lines(ref, ref_cfg)
+            lines += _table(["metric", _REF], _ref_rows(ref))
+            lines += _occupancy_lines(ref)
             lines.append("```")
             lines.append("")
             lines += _plot_links(args)
@@ -176,35 +165,33 @@ def main():
         note = None
         if not base or not ref:
             note = f"only {', '.join(sorted(configs))} ran this run; no gain to compute"
-        elif reason := _comparable(base, ref, ref_cfg, base_cfg):
-            note = f"{base_cfg} and {ref_cfg} measured different requests ({reason}); gain withheld"
+        elif reason := _comparable(base, ref):
+            note = f"{_BASE} and {_REF} measured different requests ({reason}); gain withheld"
         if note:
             lines.append(note)
             lines.append("")
         lines.append("```text")
         shapes = [
             f"{cfg} {c['num_chunks']} chunks x {c['chunk_size']} tok = {c['max_seq']:,} tok"
-            for cfg, c in ((base_cfg, base), (ref_cfg, ref))
+            for cfg, c in ((_BASE, base), (_REF, ref))
             if c
         ]
         lines.append("request: " + " | ".join(shapes))
-        lines.append(f"gain = how many times better {ref_cfg} is than {base_cfg}")
+        lines.append(f"gain = how many times better {_REF} is than {_BASE}")
         if not note:
             rb, rr = base.get("pipeline_ranks"), ref.get("pipeline_ranks")
             lines.append(f"ideal = a perfect {rb}-rank -> {rr}-rank pipeline, C chunks deep:")
             lines.append("        chunk_time x1 (latency is work, not width), ttft xC*R/(C+R-1), throughput xR")
-        lines += _table(
-            ["metric", base_cfg, ref_cfg, f"{ref_cfg} gain", "ideal", "of ideal"], _rows(base, ref, gain=not note)
-        )
-        lines += _occupancy_lines(ref, ref_cfg)
+        lines += _table(["metric", _BASE, _REF, f"{_REF} gain", "ideal", "of ideal"], _rows(base, ref, gain=not note))
+        lines += _occupancy_lines(ref)
         lines.append("```")
         lines.append("")
         lines += _plot_links(args)
 
     title = (
-        f"disaggregated prefill perf -- {ref_cfg}"
+        f"disaggregated prefill perf -- {_REF}"
         if args.sc4_only
-        else f"disaggregated prefill scaling -- {ref_cfg} vs {base_cfg}"
+        else f"disaggregated prefill scaling -- {_REF} vs {_BASE}"
     )
     block = "### {}\n\n{}\n".format(title, "\n".join(lines))
     print(block)

@@ -10,7 +10,6 @@
 #include "ttnn/operations/data_movement/common/common.hpp"
 #include "ttnn/tensor/shape/shape.hpp"
 #include "ttnn/tensor/tensor_ops.hpp"
-#include <tt-metalium/experimental/tensor_layout_apis_with_custom_alignment.hpp>
 
 namespace ttnn::prim {
 
@@ -199,7 +198,7 @@ tt::tt_metal::TensorSpec BcastDeviceOperation::compute_output_specs(
             shard_spec);
         return tt::tt_metal::TensorSpec(
             input_tensor.logical_shape(),
-            tt::tt_metal::experimental::tensor_layout_from_padded_shape(
+            TensorLayout::fromPaddedShape(
                 input_tensor.dtype(),
                 PageConfig(Layout::TILE),
                 mem_config,
@@ -209,7 +208,7 @@ tt::tt_metal::TensorSpec BcastDeviceOperation::compute_output_specs(
 
     return tt::tt_metal::TensorSpec(
         input_tensor.logical_shape(),
-        tt::tt_metal::experimental::tensor_layout_from_padded_shape(
+        TensorLayout::fromPaddedShape(
             input_tensor.dtype(),
             PageConfig(Layout::TILE),
             operation_attributes.output_mem_config,
@@ -236,9 +235,9 @@ tt::tt_metal::operation::OpPerformanceModelGeneral<Tensor> BcastDeviceOperation:
     const Tensor& input_tensor0 = tensor_args.input_a;
     const Tensor& input_tensor1 = tensor_args.input_b;
     const Tensor& output_tensor = tensor_return_value;
-    const bool output_is_dram = output_tensor.memory_config().buffer_type() == tt::tt_metal::BufferType::DRAM;
+    const bool output_is_dram = output_tensor.buffer()->buffer_type() == tt::tt_metal::BufferType::DRAM;
     const bool output_is_sharded = output_tensor.memory_config().is_sharded();
-    const bool input_is_dram = input_tensor0.memory_config().buffer_type() == tt::tt_metal::BufferType::DRAM;
+    const bool input_is_dram = input_tensor0.buffer()->buffer_type() == tt::tt_metal::BufferType::DRAM;
     const bool input_is_sharded = input_tensor0.memory_config().is_sharded();
     const bool is_local = input_is_sharded && !input_is_dram && output_is_sharded && !output_is_dram &&
                           (output_tensor.memory_config().shard_spec().value().grid ==

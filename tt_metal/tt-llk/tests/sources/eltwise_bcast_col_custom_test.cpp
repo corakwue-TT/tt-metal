@@ -86,6 +86,8 @@ void run_kernel(RUNTIME_PARAMETERS params)
         else
         {
 #ifdef LLK_PROFILER
+            // Preserve the deleted perf kernel's flat loop: an extra one-trip
+            // block loop changes the Wormhole unpack ELF and steady-state cycles.
             for (std::uint32_t loop = 0; loop < loop_factor; ++loop)
             {
                 _llk_unpack_AB_sub_bcast_col_custom_(PERF_ADDRESS(PERF_INPUT_A, 0), PERF_ADDRESS(PERF_INPUT_B, 0), num_tiles_in_block);
@@ -160,7 +162,7 @@ void run_kernel(RUNTIME_PARAMETERS params)
         {
             return;
         }
-        else if constexpr (PERF_RUN_TYPE == PerfRunType::UNPACK_ISOLATE)
+        else if constexpr (PERF_RUN_TYPE == PerfRunType::UNPACK_ISOLATE || PERF_RUN_TYPE == PerfRunType::L1_CONGESTION)
         {
             for (std::uint32_t loop = 0; loop < loop_factor; ++loop)
             {

@@ -35,8 +35,6 @@ void py_module(nb::module_& mod) {
 
         Keyword args:
             memory_config (ttnn.MemoryConfig, optional): memory configuration for the operation. Defaults to `None`.
-            are_required_outputs (List[bool], optional): which of the three gradients to compute. An entry set to
-                False returns None in that position and skips its computation. Defaults to `[True, True, True]`.
 
         Returns:
             List of ttnn.Tensor: the output tensor.
@@ -60,8 +58,7 @@ void py_module(nb::module_& mod) {
         nb::arg("input_tensor_c"),
         nb::arg("alpha"),
         nb::kw_only(),
-        nb::arg("memory_config") = nb::none(),
-        nb::arg("are_required_outputs") = nb::cast(std::vector<bool>{true, true, true}));
+        nb::arg("memory_config") = nb::none());
 
     ttnn::bind_function<"addcdiv_bw">(
         mod,
@@ -78,8 +75,6 @@ void py_module(nb::module_& mod) {
 
         Keyword args:
             memory_config (ttnn.MemoryConfig, optional): memory configuration for the operation. Defaults to `None`.
-            are_required_outputs (List[bool], optional): which of the three gradients to compute. An entry set to
-                False returns None in that position and skips its computation. Defaults to `[True, True, True]`.
 
         Returns:
             List of ttnn.Tensor: the output tensor.
@@ -104,8 +99,7 @@ void py_module(nb::module_& mod) {
         nb::arg("input_tensor_c"),
         nb::arg("alpha"),
         nb::kw_only(),
-        nb::arg("memory_config") = nb::none(),
-        nb::arg("are_required_outputs") = nb::cast(std::vector<bool>{true, true, true}));
+        nb::arg("memory_config") = nb::none());
 
     ttnn::bind_function<"where_bw">(
         mod,
@@ -174,9 +168,6 @@ void py_module(nb::module_& mod) {
 
         Keyword args:
             memory_config (ttnn.MemoryConfig, optional): memory configuration for the operation. Defaults to `None`.
-            are_required_outputs (List[bool], optional): which gradients to compute. An entry set to False returns
-                None in that position and skips its computation. Three entries with a tensor weight, two with a
-                scalar weight. Defaults to all True.
 
 
         Returns:
@@ -214,30 +205,26 @@ void py_module(nb::module_& mod) {
                 const ttnn::Tensor&,
                 const ttnn::Tensor&,
                 const ttnn::Tensor&,
-                const std::optional<ttnn::MemoryConfig>&,
-                const std::vector<bool>&>(&ttnn::lerp_bw),
+                const std::optional<ttnn::MemoryConfig>&>(&ttnn::lerp_bw),
             nb::arg("grad_tensor"),
             nb::arg("input_tensor_a"),
             nb::arg("input_tensor_b"),
             nb::arg("input_tensor_c"),
             nb::kw_only(),
-            nb::arg("memory_config") = nb::none(),
-            nb::arg("are_required_outputs") = nb::cast(std::vector<bool>{true, true, true})),
+            nb::arg("memory_config") = nb::none()),
         ttnn::overload_t(
             nb::overload_cast<
                 const ttnn::Tensor&,
                 const ttnn::Tensor&,
                 const ttnn::Tensor&,
                 float,
-                const std::optional<ttnn::MemoryConfig>&,
-                const std::vector<bool>&>(&ttnn::lerp_bw),
+                const std::optional<ttnn::MemoryConfig>&>(&ttnn::lerp_bw),
             nb::arg("grad_tensor"),
             nb::arg("input_tensor_a"),
             nb::arg("input_tensor_b"),
             nb::arg("scalar"),
             nb::kw_only(),
-            nb::arg("memory_config") = nb::none(),
-            nb::arg("are_required_outputs") = nb::cast(std::vector<bool>{true, true})));
+            nb::arg("memory_config") = nb::none()));
 }
 
 }  // namespace ttnn::operations::ternary_backward

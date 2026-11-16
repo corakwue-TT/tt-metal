@@ -4,6 +4,12 @@
 
 #pragma once
 
+#include <functional>
+
+#include <algorithm>
+#include <array>
+
+#include <tt-metalium/runtime_args_data.hpp>
 #include "ttnn/operations/ccl/shared_with_host/ccl_runtime_args.hpp"
 #include <tt_stl/reflection.hpp>
 
@@ -21,14 +27,30 @@
 
 namespace ttnn::experimental::prim {
 
-// Kernel indices of the reduce-scatter reader and writer inside a ProgramDescriptor. A Program built from the
-// descriptor uses the same indices as kernel handles, which is how cache-hit overrides find the common args.
+// Common argument bindings shared by standalone and fused CCL programs.
+struct ReduceScatterProgramArtifacts {
+    // Cache the binding objects, not their payload pointers: dispatch may relocate data().
+    std::reference_wrapper<tt::tt_metal::RuntimeArgsData> reader_common_args;
+    std::reference_wrapper<tt::tt_metal::RuntimeArgsData> writer_common_args;
+    using RuntimeArgs = std::array<uint32_t, ttnn::ccl::ReduceScatterCommonArgs::count>;
+    static RuntimeArgs collect_runtime_args(
+        bool is_ring,
+        const std::optional<GlobalSemaphore>& barrier,
+        const std::vector<GlobalSemaphore>& semaphores,
+        const Tensor& input,
+        const Tensor& intermediate,
+        const Tensor& output,
+        const std::optional<Tensor>& penult = std::nullopt);
+
+    void override_runtime_arguments(const RuntimeArgs& args) const {
+        std::copy(args.begin(), args.end(), reader_common_args.get().data());
+        std::copy(args.begin(), args.end(), writer_common_args.get().data());
+    }
+};
+
 struct ReduceScatterDescriptorArtifacts {
-    static constexpr size_t no_kernel = static_cast<size_t>(-1);
     size_t reader_kernel_index = 0;
     size_t writer_kernel_index = 0;
-    // Set by the line builder; the ring builder leaves it unset.
-    size_t reduce_kernel_index = no_kernel;
 };
 
 struct ReduceScatterMinimalAsyncParams {
@@ -51,9 +73,7 @@ struct ReduceScatterMinimalAsyncParams {
     std::optional<ttnn::MeshShape> mesh_shape;
     std::vector<tt::tt_fabric::FabricNodeId> fabric_nodes;
 
-    // Compile-time attributes drive the default program-cache reflection hash and the canonical key. The semaphore
-    // and barrier addresses are deliberately left out (only the barrier's presence is keyed): callers cycle them, so
-    // Ring/LineReduceScatterProgramFactory::override_runtime_arguments re-applies them on every cache hit.
+    // Compile-time attributes drive the default program-cache reflection hash and the canonical key
     static constexpr auto attribute_names = std::forward_as_tuple(
         "dim",
         "num_links",

@@ -9,7 +9,6 @@
 #include "moe_routing_remap_device_operation.hpp"
 #include "ttnn/device_operation.hpp"
 #include "ttnn/tensor/tensor_ops.hpp"
-#include <tt-metalium/experimental/tensor_layout_apis_with_custom_alignment.hpp>
 
 namespace ttnn::operations::data_movement {
 
@@ -76,7 +75,7 @@ MoeRoutingRemapDeviceOperation::spec_return_value_t MoeRoutingRemapDeviceOperati
     const auto& old_spec = routing_weights.tensor_spec();
     return tt::tt_metal::TensorSpec(
         old_spec.logical_shape(),
-        tt::tt_metal::experimental::tensor_layout_with_custom_alignment(
+        TensorLayout(
             old_spec.tensor_layout().get_data_type(),
             old_spec.tensor_layout().get_page_config(),
             mem_config,

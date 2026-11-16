@@ -73,7 +73,7 @@ void run_kernel(RUNTIME_PARAMETERS params)
             // must match math retirements exactly or either side hangs.
             if constexpr (!unpack_to_dest)
             {
-                _perf_unpack_stream_set_valid</* src A */ true, /* src B */ is_fp32_dest_acc_en, PERF_RUN_TYPE>(num_faces * TILE_CNT * LOOP_FACTOR /* iterations */);
+                _perf_unpack_loop_set_valid</* src A */ true, /* src B */ is_fp32_dest_acc_en>(num_faces * TILE_CNT * LOOP_FACTOR /* iterations */);
             }
         }
         else if constexpr (PERF_RUN_TYPE != PerfRunType::PACK_ISOLATE)
@@ -133,12 +133,7 @@ void run_kernel(RUNTIME_PARAMETERS)
         {
             return;
         }
-        else if constexpr (PERF_RUN_TYPE == PerfRunType::UNPACK_ISOLATE && perf_mock_mop<PERF_RUN_TYPE>() && !unpack_to_dest) // Wormhole: one MOP stream
-        {
-            // unpack_A publishes a SrcB valid with every SrcA valid, so both are retired here.
-            _perf_math_stream_clear_valid</* clear A */ true, /* clear B */ true, PERF_RUN_TYPE>(num_faces * TILE_CNT * LOOP_FACTOR);
-        }
-        else if constexpr (PERF_RUN_TYPE == PerfRunType::UNPACK_ISOLATE)
+        else if constexpr (PERF_RUN_TYPE == PerfRunType::UNPACK_ISOLATE || PERF_RUN_TYPE == PerfRunType::L1_CONGESTION)
         {
             for (std::uint32_t loop = 0; loop < LOOP_FACTOR; ++loop)
             {
@@ -243,7 +238,7 @@ void run_kernel(RUNTIME_PARAMETERS params)
     {
         START_PERF_MEASURE("TILE_LOOP")
 
-        if constexpr (PERF_RUN_TYPE == PerfRunType::PACK_ISOLATE)
+        if constexpr (PERF_RUN_TYPE == PerfRunType::PACK_ISOLATE || PERF_RUN_TYPE == PerfRunType::L1_CONGESTION)
         {
             for (std::uint32_t loop = 0; loop < LOOP_FACTOR; ++loop)
             {

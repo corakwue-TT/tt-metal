@@ -14,7 +14,6 @@ from .noc_sync import NocSync
 from .reconfig_stall import ReconfigStall
 from .semaphore_handshake import SemaphoreHandshake
 from .srcreg_bank import SrcRegBank
-from .tensix_risc_order import TensixRiscOrder
 
 #: All available checks, keyed by their CLI name. cb-sync / noc-sync / noc-atomic-exit / noc-read-barrier / noc-l1-invalidate are
 #: deterministic but their surface is JIT-compiled kernels OUTSIDE tt-llk, so
@@ -25,7 +24,6 @@ ALL = {
     c.name: c
     for c in (
         MmioRace,
-        TensixRiscOrder,
         CfgWordOverlap,
         SemaphoreHandshake,
         ReconfigStall,

@@ -132,10 +132,11 @@ def test_tensor_creation_api_parity(shape, tt_dtype, layout, device):
     py_tensor_after_round_trip_3 = py_tensor_after_round_trip_3.to(py_tensor.dtype)
     py_tensor_after_round_trip_4 = py_tensor_after_round_trip_4.to(py_tensor.dtype)
 
-    assert torch.allclose(py_tensor, py_tensor_after_round_trip_1, **allclose_kwargs)
-    assert torch.allclose(py_tensor, py_tensor_after_round_trip_2, **allclose_kwargs)
-    assert torch.allclose(py_tensor, py_tensor_after_round_trip_3, **allclose_kwargs)
-    assert torch.allclose(py_tensor, py_tensor_after_round_trip_4, **allclose_kwargs)
+    passing = torch.allclose(py_tensor, py_tensor_after_round_trip_1, **allclose_kwargs)
+    passing = torch.allclose(py_tensor, py_tensor_after_round_trip_2, **allclose_kwargs)
+    passing = torch.allclose(py_tensor, py_tensor_after_round_trip_3, **allclose_kwargs)
+    passing = torch.allclose(py_tensor, py_tensor_after_round_trip_4, **allclose_kwargs)
+    assert passing
 
 
 grid_size = [8, 7]
@@ -240,10 +241,11 @@ def test_tensor_creation_with_memory_config(shape, memory_config, tt_dtype, layo
     py_tensor_after_round_trip_3 = py_tensor_after_round_trip_3.to(py_tensor.dtype)
     py_tensor_after_round_trip_4 = py_tensor_after_round_trip_4.to(py_tensor.dtype)
 
-    assert torch.allclose(py_tensor, py_tensor_after_round_trip_1, **allclose_kwargs)
-    assert torch.allclose(py_tensor, py_tensor_after_round_trip_2, **allclose_kwargs)
-    assert torch.allclose(py_tensor, py_tensor_after_round_trip_3, **allclose_kwargs)
-    assert torch.allclose(py_tensor, py_tensor_after_round_trip_4, **allclose_kwargs)
+    passing = torch.allclose(py_tensor, py_tensor_after_round_trip_1, **allclose_kwargs)
+    passing = torch.allclose(py_tensor, py_tensor_after_round_trip_2, **allclose_kwargs)
+    passing = torch.allclose(py_tensor, py_tensor_after_round_trip_3, **allclose_kwargs)
+    passing = torch.allclose(py_tensor, py_tensor_after_round_trip_4, **allclose_kwargs)
+    assert passing
 
 
 @pytest.mark.parametrize(

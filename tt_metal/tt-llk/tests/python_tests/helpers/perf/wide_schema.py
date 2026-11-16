@@ -48,6 +48,8 @@ _TIMING_BASES = (
     "UNPACK_ISOLATE",
     "MATH_ISOLATE",
     "PACK_ISOLATE",
+    "L1_CONGESTION[UNPACK]",
+    "L1_CONGESTION[PACK]",
 )
 _TIMING_COLUMNS = [
     Column(stat_column(base, kind), "float64", True, "timing")
@@ -148,7 +150,6 @@ DB_SCHEMA = [
     Column("relu_config", "int64", True, "configuration"),
     Column("respect_trigger", "bool", True, "configuration"),
     Column("reuse_dest_type", "string", True, "configuration"),
-    Column("row_mop", "bool", True, "configuration"),
     Column("sfpu_bcast_dim", "string", True, "configuration"),
     Column("sign_magnitude", "bool", True, "configuration"),
     Column("srca_reuse_count", "int64", True, "configuration"),

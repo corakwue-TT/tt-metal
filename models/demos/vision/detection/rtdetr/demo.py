@@ -23,12 +23,6 @@ from transformers import RTDetrForObjectDetection, RTDetrImageProcessor, RTDetrV
 from ttnn.model_preprocessing import preprocess_model_parameters
 
 import ttnn
-from models.demos.vision.detection.rtdetr.common.num_layers import (
-    NUM_LAYERS_ENV,
-    load_reference_model,
-    log_layer_counts,
-    num_layers_from_env,
-)
 from models.demos.vision.detection.rtdetr.common.preprocessing import custom_preprocessor
 from models.demos.vision.detection.rtdetr.tt.model import TtRTDetrModel
 
@@ -37,18 +31,16 @@ MODEL_CONFIGS = {
     2: ("PekingU/rtdetr_v2_r50vd", RTDetrV2ForObjectDetection),
 }
 
-# COCO val2017 images licensed for commercial use and modification; README.md lists each one's
-# license and source.
 SAMPLE_TEST_IMAGES = [
     "http://images.cocodataset.org/val2017/000000039769.jpg",
     "http://images.cocodataset.org/val2017/000000397133.jpg",
-    "http://images.cocodataset.org/val2017/000000189078.jpg",
+    "http://images.cocodataset.org/val2017/000000037777.jpg",
     "http://images.cocodataset.org/val2017/000000252219.jpg",
-    "http://images.cocodataset.org/val2017/000000065350.jpg",
-    "http://images.cocodataset.org/val2017/000000414510.jpg",
+    "http://images.cocodataset.org/val2017/000000087038.jpg",
+    "http://images.cocodataset.org/val2017/000000174482.jpg",
     "http://images.cocodataset.org/val2017/000000403385.jpg",
     "http://images.cocodataset.org/val2017/000000006818.jpg",
-    "http://images.cocodataset.org/val2017/000000574702.jpg",
+    "http://images.cocodataset.org/val2017/000000480985.jpg",
     "http://images.cocodataset.org/val2017/000000331352.jpg",
 ]
 
@@ -131,13 +123,7 @@ def save_detection_images(
         logger.info(f"Saved TT output to {tt_path}")
 
 
-def run_demo(
-    image_sources: list[str],
-    threshold: float,
-    device_id: int,
-    version: int = 1,
-    num_layers: int | None = None,
-) -> Path:
+def run_demo(image_sources: list[str], threshold: float, device_id: int, version: int = 1) -> Path:
     if len(image_sources) != 1:
         raise ValueError("The current demo supports batch size 1")
 
@@ -148,8 +134,7 @@ def run_demo(
 
     logger.info(f"Loading RT-DETR v{version}: {model_name}")
     image_processor = RTDetrImageProcessor.from_pretrained(model_name)
-    torch_model = load_reference_model(model_class, model_name, num_layers)
-    log_layer_counts(torch_model.config, num_layers)
+    torch_model = model_class.from_pretrained(model_name).eval()
     pixel_values = image_processor(images=images, return_tensors="pt").pixel_values
     _, _, input_height, input_width = pixel_values.shape
     target_sizes = torch.tensor([(image.height, image.width) for image in images])
@@ -232,13 +217,7 @@ def image_to_frame(image: Image.Image) -> np.ndarray:
     return cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
 
 
-def run_video_demo(
-    source: str,
-    threshold: float,
-    device_id: int,
-    version: int = 1,
-    num_layers: int | None = None,
-) -> Path:
+def run_video_demo(source: str, threshold: float, device_id: int, version: int = 1) -> Path:
     validate_video_source(source)
     output_directory = create_output_directory()
     output_path = output_directory / "tt_output.mp4"
@@ -282,8 +261,7 @@ def run_video_demo(
     logger.info(f"Processing at most the first {MAX_VIDEO_DURATION_SECONDS} seconds")
 
     image_processor = RTDetrImageProcessor.from_pretrained(model_name)
-    torch_model = load_reference_model(model_class, model_name, num_layers)
-    log_layer_counts(torch_model.config, num_layers)
+    torch_model = model_class.from_pretrained(model_name).eval()
     first_image = frame_to_image(first_frame)
     first_pixel_values = image_processor(images=first_image, return_tensors="pt").pixel_values
     _, _, input_height, input_width = first_pixel_values.shape
@@ -408,15 +386,6 @@ def main():
         default=1,
         help="RT-DETR model version",
     )
-    parser.add_argument(
-        "--num-layers",
-        type=int,
-        default=num_layers_from_env(),
-        help=(
-            "Keep this many repeats of every stack of identical layers, for kernel coverage on a "
-            f"simulator. Detections are meaningless when set. Defaults to ${NUM_LAYERS_ENV}."
-        ),
-    )
 
     args = parser.parse_args()
 
@@ -426,7 +395,6 @@ def main():
             threshold=args.threshold,
             device_id=args.device_id,
             version=args.model_version,
-            num_layers=args.num_layers,
         )
     else:
         run_demo(
@@ -434,7 +402,6 @@ def main():
             threshold=args.threshold,
             device_id=args.device_id,
             version=args.model_version,
-            num_layers=args.num_layers,
         )
 
 

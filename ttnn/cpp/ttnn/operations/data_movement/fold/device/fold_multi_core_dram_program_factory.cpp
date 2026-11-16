@@ -26,6 +26,7 @@ namespace ttnn::operations::data_movement {
 
 using namespace tt::constants;
 using namespace tt::tt_metal;
+using namespace tt::tt_metal::experimental;
 
 namespace {
 namespace CMAKE_UNIQUE_NAMESPACE {

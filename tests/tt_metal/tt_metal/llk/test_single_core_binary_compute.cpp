@@ -414,7 +414,7 @@ bool single_core_binary(
     const size_t byte_size = test_config.num_tiles * test_config.tile_byte_size;
     auto& cq = mesh_device->mesh_command_queue();
     auto zero_coord = distributed::MeshCoordinate(0, 0);
-    const NodeCoord node{
+    const experimental::NodeCoord node{
         static_cast<std::uint32_t>(test_config.core.x), static_cast<std::uint32_t>(test_config.core.y)};
 
     // Math-fidelity masks model WH/BH LLK behavior; Quasar HW does not apply them.
@@ -426,21 +426,21 @@ bool single_core_binary(
     auto& output_dram_buffer = buffers.output;
 
     auto defines_map = build_binary_defines(test_config);
-    KernelSpec::CompilerOptions::Defines defines;
+    experimental::KernelSpec::CompilerOptions::Defines defines;
     for (auto& kv : defines_map) {
         defines.emplace(kv.first, kv.second);
     }
 
-    const DFBSpecName INP0_DFB{"inp0_dfb"};
-    const DFBSpecName INP1_DFB{"inp1_dfb"};
-    const DFBSpecName INP2_DFB{"inp2_dfb"};
-    const DFBSpecName OUT_DFB{"out_dfb"};
-    const KernelSpecName READER{"reader"};
-    const KernelSpecName WRITER{"writer"};
-    const KernelSpecName COMPUTE{"compute"};
+    const experimental::DFBSpecName INP0_DFB{"inp0_dfb"};
+    const experimental::DFBSpecName INP1_DFB{"inp1_dfb"};
+    const experimental::DFBSpecName INP2_DFB{"inp2_dfb"};
+    const experimental::DFBSpecName OUT_DFB{"out_dfb"};
+    const experimental::KernelSpecName READER{"reader"};
+    const experimental::KernelSpecName WRITER{"writer"};
+    const experimental::KernelSpecName COMPUTE{"compute"};
 
-    auto make_input_dfb = [&](const DFBSpecName& name, std::uint32_t num_entries) {
-        return DataflowBufferSpec{
+    auto make_input_dfb = [&](const experimental::DFBSpecName& name, std::uint32_t num_entries) {
+        return experimental::DataflowBufferSpec{
             .unique_id = name,
             .entry_size = static_cast<std::uint32_t>(test_config.tile_byte_size),
             .num_entries = num_entries,
@@ -451,10 +451,10 @@ bool single_core_binary(
 
     const std::uint32_t num_tiles_u = static_cast<std::uint32_t>(test_config.num_tiles);
     const std::uint32_t retained_operand_tiles = test_config.precede_dest_reuse_with_col_broadcast ? 1 : num_tiles_u;
-    DataflowBufferSpec inp0_dfb_spec = make_input_dfb(INP0_DFB, num_tiles_u);
-    DataflowBufferSpec inp1_dfb_spec = make_input_dfb(INP1_DFB, retained_operand_tiles);
-    DataflowBufferSpec inp2_dfb_spec = make_input_dfb(INP2_DFB, retained_operand_tiles);
-    DataflowBufferSpec out_dfb_spec{
+    experimental::DataflowBufferSpec inp0_dfb_spec = make_input_dfb(INP0_DFB, num_tiles_u);
+    experimental::DataflowBufferSpec inp1_dfb_spec = make_input_dfb(INP1_DFB, retained_operand_tiles);
+    experimental::DataflowBufferSpec inp2_dfb_spec = make_input_dfb(INP2_DFB, retained_operand_tiles);
+    experimental::DataflowBufferSpec out_dfb_spec{
         .unique_id = OUT_DFB,
         .entry_size = static_cast<std::uint32_t>(test_config.tile_byte_size),
         .num_entries = static_cast<std::uint32_t>(test_config.num_tiles),
@@ -462,24 +462,24 @@ bool single_core_binary(
         .tile_format_metadata = test_config.tile,
     };
 
-    DataMovementHardwareConfig reader_hw_config;
+    experimental::DataMovementHardwareConfig reader_hw_config;
     if (mesh_device->arch() == tt::ARCH::QUASAR) {
-        reader_hw_config = DataMovementHardwareConfig{
+        reader_hw_config = experimental::DataMovementHardwareConfig{
             .config_2xx =
-                DataMovementHardwareConfig::DataMovement2XXConfig{
+                experimental::DataMovementHardwareConfig::DataMovement2XXConfig{
                     .disable_dfb_implicit_sync_for_all = true,
                 },
         };
     } else {
-        reader_hw_config = DataMovementHardwareConfig{
+        reader_hw_config = experimental::DataMovementHardwareConfig{
             .config_1xx =
-                DataMovementHardwareConfig::DataMovement1XXConfig{
+                experimental::DataMovementHardwareConfig::DataMovement1XXConfig{
                     .processor = tt_metal::DataMovementProcessor::RISCV_1,
                     .noc = tt_metal::NOC::RISCV_1_default,
                 },
         };
     }
-    KernelSpec reader_spec{
+    experimental::KernelSpec reader_spec{
         .unique_id = READER,
         .source =
 
@@ -490,20 +490,20 @@ bool single_core_binary(
             {{
                  .dfb_spec_name = INP0_DFB,
                  .accessor_name = "in0",
-                 .endpoint_type = DFBEndpointType::PRODUCER,
-                 .access_pattern = DFBAccessPattern::STRIDED,
+                 .endpoint_type = experimental::DFBEndpointType::PRODUCER,
+                 .access_pattern = experimental::DFBAccessPattern::STRIDED,
              },
              {
                  .dfb_spec_name = INP1_DFB,
                  .accessor_name = "in1",
-                 .endpoint_type = DFBEndpointType::PRODUCER,
-                 .access_pattern = DFBAccessPattern::STRIDED,
+                 .endpoint_type = experimental::DFBEndpointType::PRODUCER,
+                 .access_pattern = experimental::DFBAccessPattern::STRIDED,
              },
              {
                  .dfb_spec_name = INP2_DFB,
                  .accessor_name = "in2",
-                 .endpoint_type = DFBEndpointType::PRODUCER,
-                 .access_pattern = DFBAccessPattern::STRIDED,
+                 .endpoint_type = experimental::DFBEndpointType::PRODUCER,
+                 .access_pattern = experimental::DFBAccessPattern::STRIDED,
              }},
         .runtime_arg_schema =
             {.runtime_arg_names =
@@ -511,36 +511,36 @@ bool single_core_binary(
         .hw_config = reader_hw_config,
     };
 
-    DataMovementHardwareConfig writer_hw_config;
+    experimental::DataMovementHardwareConfig writer_hw_config;
     if (mesh_device->arch() == tt::ARCH::QUASAR) {
-        writer_hw_config = DataMovementHardwareConfig{
+        writer_hw_config = experimental::DataMovementHardwareConfig{
             .config_2xx =
-                DataMovementHardwareConfig::DataMovement2XXConfig{
+                experimental::DataMovementHardwareConfig::DataMovement2XXConfig{
                     .disable_dfb_implicit_sync_for_all = true,
                 },
         };
     } else {
-        writer_hw_config = DataMovementHardwareConfig{
+        writer_hw_config = experimental::DataMovementHardwareConfig{
             .config_1xx =
-                DataMovementHardwareConfig::DataMovement1XXConfig{
+                experimental::DataMovementHardwareConfig::DataMovement1XXConfig{
                     .processor = tt_metal::DataMovementProcessor::RISCV_0,
                     .noc = tt_metal::NOC::RISCV_0_default,
                 },
         };
     }
-    KernelSpec writer_spec{
+    experimental::KernelSpec writer_spec{
         .unique_id = WRITER,
         .source =
 
             "tests/tt_metal/tt_metal/test_kernels/dataflow/writer_unary_2_0.cpp",
         .num_threads = 1,
-        .dfb_bindings = {ConsumerOf(OUT_DFB, "in")},
+        .dfb_bindings = {experimental::ConsumerOf(OUT_DFB, "in")},
         .runtime_arg_schema = {.runtime_arg_names = {"dst_addr", "bank_id", "num_tiles"}},
         .hw_config = writer_hw_config,
     };
 
-    ComputeHardwareConfig compute_hw_config;
-    ComputeHardwareConfig::ComputeUnpackModes unpack_modes{};
+    experimental::ComputeHardwareConfig compute_hw_config;
+    experimental::ComputeHardwareConfig::ComputeUnpackModes unpack_modes{};
     if (test_config.l1_input_data_format == tt::DataFormat::Float32) {
         unpack_modes = {
             {INP0_DFB, tt::tt_metal::UnpackMode::UnpackToSrc},
@@ -548,12 +548,12 @@ bool single_core_binary(
             {INP2_DFB, tt::tt_metal::UnpackMode::UnpackToSrc},
         };
     }
-    compute_hw_config = ComputeHardwareConfig{
+    compute_hw_config = experimental::ComputeHardwareConfig{
         .fpu_math_fidelity = test_config.math_fidelity,
         .enable_32_bit_dest = test_config.enable_32_bit_dest,
         .unpack_modes = unpack_modes,
     };
-    KernelSpec compute_spec{
+    experimental::KernelSpec compute_spec{
         .unique_id = COMPUTE,
         .source =
 
@@ -564,38 +564,38 @@ bool single_core_binary(
             {{
                  .dfb_spec_name = INP0_DFB,
                  .accessor_name = "in0",
-                 .endpoint_type = DFBEndpointType::CONSUMER,
-                 .access_pattern = DFBAccessPattern::STRIDED,
+                 .endpoint_type = experimental::DFBEndpointType::CONSUMER,
+                 .access_pattern = experimental::DFBAccessPattern::STRIDED,
              },
              {
                  .dfb_spec_name = INP1_DFB,
                  .accessor_name = "in1",
-                 .endpoint_type = DFBEndpointType::CONSUMER,
-                 .access_pattern = DFBAccessPattern::STRIDED,
+                 .endpoint_type = experimental::DFBEndpointType::CONSUMER,
+                 .access_pattern = experimental::DFBAccessPattern::STRIDED,
              },
              {
                  .dfb_spec_name = INP2_DFB,
                  .accessor_name = "in2",
-                 .endpoint_type = DFBEndpointType::CONSUMER,
-                 .access_pattern = DFBAccessPattern::STRIDED,
+                 .endpoint_type = experimental::DFBEndpointType::CONSUMER,
+                 .access_pattern = experimental::DFBAccessPattern::STRIDED,
              },
              {
                  .dfb_spec_name = OUT_DFB,
                  .accessor_name = "out",
-                 .endpoint_type = DFBEndpointType::PRODUCER,
-                 .access_pattern = DFBAccessPattern::STRIDED,
+                 .endpoint_type = experimental::DFBEndpointType::PRODUCER,
+                 .access_pattern = experimental::DFBAccessPattern::STRIDED,
              }},
         .runtime_arg_schema = {.runtime_arg_names = {"per_core_block_cnt", "per_core_block_size", "acc_to_dst"}},
         .hw_config = compute_hw_config,
     };
 
-    WorkUnitSpec wu{
+    experimental::WorkUnitSpec wu{
         .name = "main",
         .kernels = {READER, WRITER, COMPUTE},
         .target_nodes = node,
     };
 
-    ProgramSpec spec{
+    experimental::ProgramSpec spec{
         .name = "single_core_binary",
         .kernels = {reader_spec, writer_spec, compute_spec},
         .dataflow_buffers = {inp0_dfb_spec, inp1_dfb_spec, inp2_dfb_spec, out_dfb_spec},
@@ -607,11 +607,11 @@ bool single_core_binary(
     workload.add_program(device_range, experimental::MakeProgramFromSpec(*mesh_device, spec));
     Program& program = workload.get_programs().at(device_range);
 
-    ProgramRunArgs params;
+    experimental::ProgramRunArgs params;
     params.kernel_run_args = {
-        ProgramRunArgs::KernelRunArgs{
+        experimental::ProgramRunArgs::KernelRunArgs{
             .kernel = READER,
-            .runtime_arg_values = MakeRuntimeArgsForSingleNode(
+            .runtime_arg_values = experimental::MakeRuntimeArgsForSingleNode(
                 node,
                 {{"src0_addr", input0_dram_buffer->address()},
                  {"src0_bank_id", 0u},
@@ -621,14 +621,14 @@ bool single_core_binary(
                  {"src2_addr", input2_dram_buffer->address()},
                  {"src2_bank_id", 0u}}),
         },
-        ProgramRunArgs::KernelRunArgs{
+        experimental::ProgramRunArgs::KernelRunArgs{
             .kernel = WRITER,
-            .runtime_arg_values = MakeRuntimeArgsForSingleNode(
+            .runtime_arg_values = experimental::MakeRuntimeArgsForSingleNode(
                 node, {{"dst_addr", output_dram_buffer->address()}, {"bank_id", 0u}, {"num_tiles", num_tiles_u}}),
         },
-        ProgramRunArgs::KernelRunArgs{
+        experimental::ProgramRunArgs::KernelRunArgs{
             .kernel = COMPUTE,
-            .runtime_arg_values = MakeRuntimeArgsForSingleNode(
+            .runtime_arg_values = experimental::MakeRuntimeArgsForSingleNode(
                 node,
                 {{"per_core_block_cnt", static_cast<std::uint32_t>(test_config.num_tiles / test_config.block_size)},
                  {"per_core_block_size", static_cast<std::uint32_t>(test_config.block_size)},

@@ -6,7 +6,7 @@
 """GRPO on the reverse-text task, ported from the prime-rl / verifiers example.
 
 Trains Qwen3-0.6B to reverse text character-by-character on a single p150.
-Rollouts are generated on device by ``TTMLRolloutSampler``.
+Rollouts are generated on device by ``Qwen3GRPOCompleter``.
 
 Run:
     python3 reverse_text/reverse_text_training_example.py
@@ -15,15 +15,25 @@ Run:
 import argparse
 import logging
 import os
+import random
 import re
+import sys
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
+from pathlib import Path
 
+# The `grpo` package lives two levels up, in the examples directory.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import numpy as np
+import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer
 from ttml.common.config import DeviceConfig, TrainingConfig, get_model_config, load_config
-from ttml.common.utils import get_tt_metal_runtime_root, set_seed
+from ttml.common.utils import get_tt_metal_runtime_root
 from ttml.trainers import GRPOTrainer, TrainerCallback, get_grpo_config
+from grpo.utils.qwen3_completer import Qwen3CompletionCtx
+from grpo.utils.qwen3_completer import Qwen3GRPOCompleter
 
 MODEL_SOURCE = "PrimeIntellect/Qwen3-0.6B-Reverse-Text-SFT"
 DATASET = "PrimeIntellect/Reverse-Text-RL"
@@ -98,40 +108,38 @@ def similarity_reward(completions, answer, **kwargs):
 class EvalCallback(TrainerCallback):
     """Greedy eval on the held-out split, before training and after every step.
 
-    Generation parameters live on the trainer's rollout sampler, so greedy
-    decoding is a temporary change of its ``temperature`` and
-    ``completions_per_prompt``: ``temperature == 0.0`` takes the pure-argmax
-    path in ``ttnn_fixed::sample``.
+    Generation parameters live on the shared ``Qwen3CompletionCtx``, so greedy
+    decoding is a temporary mutation of that context: ``temperature == 0.0``
+    takes the pure-argmax path in ``ttnn_fixed::sample``.
 
     Writes the three eval scalars (``eval_similarity`` / ``eval_chars`` /
     ``eval_format``) into ``trainer.metrics`` so the built-in ``GRPOMonitor``
     picks them up as CSV columns in the same step's row.
     """
 
-    def __init__(self, dataset, num_examples):
+    def __init__(self, completer, ctx, dataset, num_examples):
         rows = dataset.select(range(min(num_examples, len(dataset))))
+        self.completer = completer
+        self.ctx = ctx
         self.prompts = list(rows["prompt"])
         self.answers = list(rows["answer"])
         self.latest: dict[str, float] = {}
 
     def on_train_begin(self, trainer):
-        self._evaluate(trainer, 0)
+        self._evaluate(0)
         trainer.metrics.update(self.latest)
 
     def on_step_end(self, trainer, step, **kwargs):
-        self._evaluate(trainer, step)
+        self._evaluate(step)
         trainer.metrics.update(self.latest)
 
-    def _evaluate(self, trainer, step):
-        sampler = trainer.rollout_sampler
-        tokenizer = trainer.tokenizer
-        saved = (sampler.temperature, sampler.completions_per_prompt)
-        sampler.temperature, sampler.completions_per_prompt = 0.0, 1
+    def _evaluate(self, step):
+        saved = (self.ctx.temperature, self.ctx.completions_per_prompt)
+        self.ctx.temperature, self.ctx.completions_per_prompt = 0.0, 1
         try:
-            batch = sampler.generate([tokenizer.encode(p, add_special_tokens=False) for p in self.prompts])
+            texts = self.completer.generate_str(self.prompts)
         finally:
-            sampler.temperature, sampler.completions_per_prompt = saved
-        texts = [tokenizer.decode(c) for c in batch.completions]
+            self.ctx.temperature, self.ctx.completions_per_prompt = saved
 
         similarities, char_fracs, formats = [], [], []
         for text, answer in zip(texts, self.answers):
@@ -165,6 +173,12 @@ def parse_args():
         help="Training config path, relative to TT_METAL_RUNTIME_ROOT or absolute.",
     )
     parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="RNG seed for reproducible runs, and the train/eval split seed.",
+    )
+    parser.add_argument(
         "--eval_examples",
         type=int,
         default=16,
@@ -176,6 +190,15 @@ def parse_args():
         default=None,
         help="Override the model config's max_sequence_length (bounds the generation horizon "
         "and the decode KV cache).",
+    )
+    parser.add_argument(
+        "--memory_efficient",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use gradient checkpointing (RunnerType.MemoryEfficient, the default): per-block "
+        "activations are recomputed in the backward pass to keep within DRAM. Pass "
+        "--no-memory_efficient for the retain-activations runner: faster backward, much "
+        "higher peak memory.",
     )
     args, _ = parser.parse_known_args()
     return args
@@ -190,16 +213,19 @@ if __name__ == "__main__":
 
     args = parse_args()
 
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+
     tt_metal_root = get_tt_metal_runtime_root()
     config_path = args.config if os.path.isabs(args.config) else os.path.join(tt_metal_root, args.config)
     raw = load_config(config_path)
     training_config = TrainingConfig(raw)
-    set_seed(training_config.seed)
     device_config = DeviceConfig(raw)
 
     model_source = raw["training_config"].get("model_source") or MODEL_SOURCE
     tokenizer = AutoTokenizer.from_pretrained(model_source, trust_remote_code=True)
-    train_dataset, eval_dataset = build_dataset(tokenizer, training_config.seed)
+    train_dataset, eval_dataset = build_dataset(tokenizer, args.seed)
 
     assert training_config.model_config, "training_config.model_config must be set"
     transformer_config = get_model_config(training_config.model_config)
@@ -224,15 +250,27 @@ if __name__ == "__main__":
         grpo_config.gradient_accumulation_steps,
     )
 
-    grpo_trainer = GRPOTrainer(
+    completion_ctx = Qwen3CompletionCtx(
+        max_tokens_to_complete=grpo_config.max_completion_length,
+        temperature=grpo_config.temperature,
+        completions_per_prompt=grpo_config.num_generations,
+    )
+    completer = Qwen3GRPOCompleter(
+        ctx=completion_ctx,
         transformer_config=transformer_config,
         device_config=device_config,
         model_source=model_source,
-        dataset_func=lambda: train_dataset,
+        memory_efficient=args.memory_efficient,
+    )
+
+    grpo_trainer = GRPOTrainer(
+        completer=completer,
+        dataset=train_dataset,
         config=grpo_config,
         reward_func=similarity_reward,
         optimizer_dict=optimizer_dict,
-        callbacks=[EvalCallback(eval_dataset, args.eval_examples)],
+        callbacks=[EvalCallback(completer, completion_ctx, eval_dataset, args.eval_examples)],
+        model_source=model_source,
     )
     grpo_trainer.train()
     logging.info("REVERSE TEXT GRPO TRAINING COMPLETE")

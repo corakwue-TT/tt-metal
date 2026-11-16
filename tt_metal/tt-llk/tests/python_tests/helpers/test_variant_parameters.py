@@ -106,16 +106,6 @@ class PACK_UNTILIZE_BENCHMARK(TemplateParameter):
 
 
 @dataclass
-class MATMUL_ROW_MOP(TemplateParameter):
-    """Blackhole matmul: run each reuse row of the block as one MOP instead of one MOP per tile."""
-
-    row_mop: bool = False
-
-    def convert_to_cpp(self) -> str:
-        return f"constexpr bool MATMUL_ROW_MOP = {str(self.row_mop).lower()};"
-
-
-@dataclass
 class MATH_TRANSPOSE_FACES(TemplateParameter):
     math_transpose_faces: Transpose
 
@@ -502,28 +492,6 @@ class SFPU_POLYGAMMA_ORDER(TemplateParameter):
         return (
             f"#define SFPU_POLYGAMMA_N_BITS {fp32_bits(n):#x}u\n"
             f"#define SFPU_POLYGAMMA_SCALE_BITS {fp32_bits(scale):#x}u"
-        )
-
-
-@dataclass
-class SFPU_SOFTPLUS_PARAMS(TemplateParameter):
-    """beta, 1/beta and the linear threshold for softplus, as fp32 bit patterns.
-
-    Macros, like :class:`SFPU_POLYGAMMA_ORDER`: sfpu_operations.h keeps the
-    beta = 1, threshold = 20 defaults under ``#ifndef``.
-    """
-
-    softplus_beta: float = 1.0
-    softplus_threshold: float = 20.0
-
-    def convert_to_cpp(self) -> str:
-        beta = self.softplus_beta
-        if beta == 0.0:
-            raise ValueError("softplus beta 0 is not a finite 1/beta")
-        return (
-            f"#define SOFTPLUS_TEST_BETA {fp32_bits(beta):#x}u\n"
-            f"#define SOFTPLUS_TEST_BETA_RECIP {fp32_bits(1.0 / beta):#x}u\n"
-            f"#define SOFTPLUS_TEST_THRESHOLD {fp32_bits(self.softplus_threshold):#x}u"
         )
 
 

@@ -4,7 +4,6 @@
 
 #include <string>
 #include <unordered_set>
-#include <variant>
 #include <vector>
 
 #include <tt_stl/assert.hpp>
@@ -15,7 +14,7 @@
 #include "impl/metal2_host_api/helpers.hpp"
 #include "impl/metal2_host_api/program_spec/validation/resource/resource.hpp"
 
-namespace tt::tt_metal {
+namespace tt::tt_metal::experimental {
 
 // Tensor bindings: accessor names, binding sequences
 void ValidateTensorBindings(const KernelSpec& kernel) {
@@ -124,7 +123,7 @@ void ValidatePerNodeTensorPlacement(const ValidationContext& ctx) {
                 continue;  // Reported by the binding reference check.
             }
             const TensorSpec& tensor_spec = it->second->spec;
-            if (!experimental::per_core_allocation::is_per_core_allocation(tensor_spec.memory_config())) {
+            if (!per_core_allocation::is_per_core_allocation(tensor_spec.memory_config())) {
                 continue;
             }
             const std::vector<CoreCoord> data_nodes =
@@ -142,4 +141,4 @@ void ValidatePerNodeTensorPlacement(const ValidationContext& ctx) {
     }
 }
 
-}  // namespace tt::tt_metal
+}  // namespace tt::tt_metal::experimental

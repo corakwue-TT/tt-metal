@@ -25,11 +25,7 @@ from models.demos.deepseek_v3_d_p.reference.kimi_k3_config import KimiK3Config
 from models.demos.deepseek_v3_d_p.reference.minimax_m2_7.modeling_minimax_m2 import MiniMaxM2SparseMoeBlock
 from models.demos.deepseek_v3_d_p.reference.minimax_m2_7_config import MiniMaxM27Config
 from models.demos.deepseek_v3_d_p.reference.mistral_small_4_config import MistralSmall4Config
-from models.demos.deepseek_v3_d_p.tests.fabric_profiles import (
-    fabric2d_device_params,
-    torus_x_device_params,
-    torus_xy_device_params,
-)
+from models.demos.deepseek_v3_d_p.tests.fabric_profiles import fabric2d_device_params, torus_xy_device_params
 from models.demos.deepseek_v3_d_p.tt.moe.init_helpers import (
     GATE_KEY_PREFIX_DEEPSEEK,
     GATE_KEY_PREFIX_KIMI_K3,
@@ -227,37 +223,6 @@ MESH_CONFIGS = [
     ),
 ]
 
-# test_forward_pass also runs SP on mesh axis 1 (TP on axis 0), the 4x4-stage layout. The 4x2 LoudBox
-# entry keeps TP=4 there, so it is the transposed twin of fabric2d-mesh-2x4.
-FORWARD_PASS_MESH_CONFIGS = [pytest.param(*p.values, 0, marks=p.marks, id=p.id) for p in MESH_CONFIGS] + [
-    pytest.param(
-        (4, 2),
-        fabric2d_device_params(),
-        2,
-        1,
-        marks=pytest.mark.requires_mesh_topology(mesh_shape=(4, 2), topology="mesh-4x2"),
-        id="fabric2d-mesh-4x2-sp1",
-    ),
-    # Galaxy with SP=4 on mesh axis 1 and TP=8 on axis 0.
-    pytest.param(
-        (8, 4),
-        torus_xy_device_params(),
-        2,
-        1,
-        marks=pytest.mark.requires_mesh_topology(mesh_shape=(8, 4), topology="mesh-8x4"),
-        id="torus-xy-8x4-sp1",
-    ),
-    # One 4x4 prefill stage (a Galaxy tray half): SP=4 on the axis-1 ring, TP=4 on the axis-0 line.
-    pytest.param(
-        (4, 4),
-        torus_x_device_params(),
-        2,
-        1,
-        marks=pytest.mark.requires_mesh_topology(mesh_shape=(4, 4), topology="mesh-4x4"),
-        id="torus-x-4x4-sp1",
-    ),
-]
-
 # Blackhole LoudBox puts all 8 P150s on the SP axis, so TP is 1 and the gate does no TP all-reduce.
 LOUDBOX_TP1_MESH_CONFIG = pytest.param(
     (8, 1),
@@ -322,11 +287,6 @@ def _make_gate_input(config, total_seq_len, allow_real_input: bool) -> torch.Ten
     return torch_input
 
 
-def _gate_input_dims(config) -> tuple:
-    """Tokens (dim 0) sharded over the SP axis, emb dim (-1) over the TP axis."""
-    return (0, -1) if config.ccl_config["DISPATCH_AXIS"] == 0 else (-1, 0)
-
-
 def _shard_gate_input(config, mesh_device, torch_input: torch.Tensor) -> ttnn.Tensor:
     sharded_mem_config = get_input_mem_config(config, mesh_device.shape)
     return ttnn.from_torch(
@@ -337,7 +297,7 @@ def _shard_gate_input(config, mesh_device, torch_input: torch.Tensor) -> ttnn.Te
         layout=ttnn.TILE_LAYOUT,
         mesh_mapper=ttnn.ShardTensor2dMesh(
             mesh_device,
-            dims=_gate_input_dims(config),  # tensor parallel
+            dims=(0, -1),  # tensor parallel
             mesh_shape=mesh_device.shape,
         ),
     )
@@ -370,13 +330,12 @@ def _validate_gate(
     recall_threshold,
     logits_pcc_threshold,
     scores_pcc_threshold,
-    sp_axis: int = 0,
 ):
     """Shared SP-composed recall/PCC validation for indices, logits and weights."""
-    n_sp_devices = mesh_device.shape[sp_axis]
-    n_tp_devices = mesh_device.shape[1 - sp_axis]
+    n_sp_devices = mesh_device.shape[0]
+    n_tp_devices = mesh_device.shape[1]
     seq_len_per_device = reference_logits.shape[0] // n_sp_devices
-    sp_composer = get_sp_mesh_composer(mesh_device, sp_axis)
+    sp_composer = get_sp_mesh_composer(mesh_device)
 
     # SP-replicated checks: compose into [1, n_sp_devices, ...] for validate_composed. Keep the topk
     # indices and their gate scores position-aligned (do NOT sort the indices) so the tie-aware recall
@@ -543,8 +502,8 @@ def _reference_topk(config, gate_model, gate_fallback_mode, gate_w, torch_input)
 @pytest.mark.uncollect_if(pred=_ci_unsupported_param_combos_forward_pass)
 @pytest.mark.parametrize("gate_model, gate_fallback_mode", REGULAR_GATE_CASES)
 @pytest.mark.parametrize(
-    "mesh_device, device_params, num_links, sp_axis",
-    FORWARD_PASS_MESH_CONFIGS,
+    "mesh_device, device_params, num_links",
+    MESH_CONFIGS,
     indirect=["mesh_device", "device_params"],
 )
 def test_forward_pass(
@@ -552,7 +511,6 @@ def test_forward_pass(
     mesh_device,
     device_params,
     num_links,
-    sp_axis,
     gate_fallback_mode,
 ):
     """Gate PCC across model variants and compute modes. The gate picks grouped vs plain top-k from
@@ -562,8 +520,6 @@ def test_forward_pass(
     torch.manual_seed(42)
 
     config = _gate_config(gate_model)
-    config.ccl_config["DISPATCH_AXIS"] = sp_axis
-    config.ccl_config["TP_AXIS"] = 1 - sp_axis
     config.ccl_config["NUM_LINKS"] = num_links
     config.ccl_config["TOPOLOGY"] = per_axis_topology(device_params["fabric_config"])[config.ccl_config["TP_AXIS"]]
     adjust_shapes_for_testing(config, mesh_device)
@@ -581,7 +537,7 @@ def test_forward_pass(
     # The real gate input is a DeepSeek-V3 prefill trace, so it is only meaningful for that model.
     use_real = gate_model == "dsv3" and use_real_weights
 
-    n_sp_devices = mesh_device.shape[sp_axis]
+    n_sp_devices = mesh_device.shape[0]
     total_seq_len = config.sp_dim * n_sp_devices
     torch_input = _make_gate_input(config, total_seq_len, allow_real_input=use_real)
 
@@ -634,7 +590,6 @@ def test_forward_pass(
         recall_threshold,
         logits_pcc_threshold,
         scores_pcc_threshold,
-        sp_axis=sp_axis,
     )
 
 

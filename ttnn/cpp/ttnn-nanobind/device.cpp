@@ -115,8 +115,7 @@ void ttnn_device(nb::module_& mod) {
         [](ttnn::MeshDevice* device) { ttnn::deallocate_buffers(device); },
         nb::arg("device"),
         R"doc(
-        Deallocate all buffers associated with Device handle. Also clears the program cache, since cached
-        programs keep their kernel binaries in device buffers.
+        Deallocate all buffers associated with Device handle
     )doc");
 }
 

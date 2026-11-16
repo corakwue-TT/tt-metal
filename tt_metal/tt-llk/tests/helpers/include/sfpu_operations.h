@@ -94,13 +94,6 @@
 #include "llk_sfpu/ckernel_sfpu_silu.h"
 #include "llk_sfpu/ckernel_sfpu_snake_beta.h"
 #include "llk_sfpu/ckernel_sfpu_softplus.h"
-#ifndef SOFTPLUS_TEST_BETA
-#define SOFTPLUS_TEST_BETA       0x3f800000u /* beta = 1.0f */
-#define SOFTPLUS_TEST_BETA_RECIP 0x3f800000u /* 1/beta = 1.0f */
-#endif
-#ifndef SOFTPLUS_TEST_THRESHOLD
-#define SOFTPLUS_TEST_THRESHOLD 0x41a00000u /* threshold = 20.0f */
-#endif
 #include "llk_sfpu/ckernel_sfpu_softshrink.h"
 #include "llk_sfpu/ckernel_sfpu_softsign.h"
 #include "llk_sfpu/ckernel_sfpu_sqrt.h"
@@ -974,7 +967,7 @@ void call_unary_sfpu_operation(std::uint32_t dst_index, std::uint32_t math_forma
                 DST_SYNC_MODE,
                 DST_ACCUM_MODE,
                 _calculate_fill_int_,
-                (APPROX_MODE, ckernel::InstrModLoadStore::UINT16, ITERATIONS),
+                (APPROX_MODE, ckernel::InstrModLoadStore::LO16, ITERATIONS),
                 dst_index,
                 vector_mode,
                 static_cast<std::uint32_t>(fill_const_value));
@@ -1256,7 +1249,7 @@ void call_unary_sfpu_operation(std::uint32_t dst_index, std::uint32_t math_forma
         if (math_format == ckernel::to_underlying(DataFormat::UInt16))
         {
             SFPU_UNARY_CALL(
-                DST_SYNC_MODE, DST_ACCUM_MODE, calculate_logical_not, (APPROX_MODE, ckernel::InstrModLoadStore::UINT16, ITERATIONS), dst_index, vector_mode);
+                DST_SYNC_MODE, DST_ACCUM_MODE, calculate_logical_not, (APPROX_MODE, ckernel::InstrModLoadStore::LO16, ITERATIONS), dst_index, vector_mode);
         }
         else if (math_format == ckernel::to_underlying(DataFormat::Int32) || math_format == ckernel::to_underlying(DataFormat::UInt32))
         {
@@ -1632,9 +1625,9 @@ void call_unary_sfpu_operation(std::uint32_t dst_index, std::uint32_t math_forma
             (APPROX_MODE, is_fp32_dest_acc_en, ITERATIONS),
             dst_index,
             vector_mode,
-            SOFTPLUS_TEST_BETA,
-            SOFTPLUS_TEST_BETA_RECIP,
-            SOFTPLUS_TEST_THRESHOLD);
+            0x3f800000u /* beta = 1.0f */,
+            0x3f800000u /* 1/beta = 1.0f */,
+            0x41a00000u /* threshold = 20.0f */);
     }
     else if constexpr (OPERATION == SfpuType::sigmoid_appx)
     {

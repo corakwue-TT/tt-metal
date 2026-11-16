@@ -2,7 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <tt_stl/cleanup.hpp>
 #include <tt_stl/reflection.hpp>
 #include "ttnn/graph/graph_processor.hpp"
 #include "ttnn/graph/graph_consts.hpp"
@@ -1352,7 +1351,6 @@ nlohmann::json GraphProcessor::end_graph_capture_to_file(const std::filesystem::
 
     // Finalize the graph, then build the report via the shared get_report() path
     auto graph_json = processor->end_capture();
-    auto pop_guard = ttsl::make_cleanup([] { tt::tt_metal::GraphTracker::instance().pop_processor(); });
     nlohmann::json report = processor->get_report();
 
     // Write to file
@@ -1370,6 +1368,7 @@ nlohmann::json GraphProcessor::end_graph_capture_to_file(const std::filesystem::
     file.close();
     log_info(tt::LogAlways, "Graph report written to: {}", report_path.string());
 
+    tt::tt_metal::GraphTracker::instance().pop_processor();
     return graph_json;
 }
 

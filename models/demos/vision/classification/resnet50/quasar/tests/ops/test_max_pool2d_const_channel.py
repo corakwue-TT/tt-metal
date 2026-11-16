@@ -40,7 +40,7 @@ import torch
 
 import ttnn
 from models.common.utility_functions import is_quasar
-from tt_py_test_utils_common.utils_for_testing import assert_with_pcc
+from tests.ttnn.utils_for_testing import assert_with_pcc
 
 # 64ch (=2 channel tiles) is the smallest case that fails on random input; 128 adds a second tile pair.
 CHANNELS = [64, 128]

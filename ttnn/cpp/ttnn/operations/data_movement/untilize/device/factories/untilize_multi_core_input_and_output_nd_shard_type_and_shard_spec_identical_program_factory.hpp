@@ -4,15 +4,14 @@
 
 #pragma once
 
-#include "ttnn/device_operation.hpp"
-#include "ttnn/metal_v2_artifacts.hpp"
+#include <tt-metalium/program_descriptors.hpp>
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/operations/data_movement/untilize/device/untilize_device_operation_types.hpp"
 
 namespace ttnn::prim {
 
 struct UntilizeMultiCoreInputAndOutputNDShardTypeAndShardSpecIdenticalProgramFactory {
-    static ttnn::device_operation::ProgramArtifacts create_program_artifacts(
+    static tt::tt_metal::ProgramDescriptor create_descriptor(
         const UntilizeOperationAttributes& operation_attributes,
         const UntilizeTensorArgs& tensor_args,
         UntilizeTensorReturnValue& tensor_return_value);

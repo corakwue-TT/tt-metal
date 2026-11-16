@@ -9,7 +9,6 @@
 #include "ttnn/device_operation.hpp"
 #include <array>
 #include <tt-metalium/math.hpp>
-#include <tt-metalium/experimental/tensor_layout_apis_with_custom_alignment.hpp>
 
 namespace ttnn::prim {
 
@@ -92,7 +91,7 @@ HaloDeviceOperation::spec_return_value_t HaloDeviceOperation::compute_output_spe
     padded_output_shape[-1] = tt::round_up(padded_output_shape[-1], shard_shape[1]);
     return tt::tt_metal::TensorSpec(
         output_shape,
-        tt::tt_metal::experimental::tensor_layout_from_padded_shape(
+        TensorLayout::fromPaddedShape(
             output_dtype, PageConfig(Layout::ROW_MAJOR), out_mem_config, output_shape, padded_output_shape));
 }
 

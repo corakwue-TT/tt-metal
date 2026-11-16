@@ -34,7 +34,6 @@
 #include "reshape_force.hpp"
 #include "codegen/reshape_codegen_device_operation.hpp"
 #include "codegen/reshape_codegen_supported.hpp"
-#include <tt-metalium/experimental/tensor_layout_apis_with_custom_alignment.hpp>
 
 namespace ttnn::operations::data_movement {
 namespace detail {
@@ -450,7 +449,7 @@ ttnn::Tensor reshape_tiled(
             MemoryConfig interleaved_output_mem_config{TensorMemoryLayout::INTERLEAVED, memory_config.buffer_type()};
             auto interleaved_output_spec = tt::tt_metal::TensorSpec(
                 requested_shape_3d,
-                tt::tt_metal::experimental::tensor_layout_from_padded_shape(
+                tt::tt_metal::TensorLayout::fromPaddedShape(
                     tensor3d.dtype(),
                     tensor3d.tensor_spec().page_config(),
                     interleaved_output_mem_config,
@@ -514,7 +513,7 @@ ttnn::Tensor reshape_tiled(
         // passed here ends up baked into the layout's alignment, so synthetic_spec.physical_shape()
         // exactly matches the requested padded shape, even if compute_padded_shape ever produced
         // dimensions that exceed tile alignment (e.g., due to shard-aware padding).
-        auto synthetic_layout = tt::tt_metal::experimental::tensor_layout_from_padded_shape(
+        auto synthetic_layout = tt::tt_metal::TensorLayout::fromPaddedShape(
             tensor3d.dtype(),
             tensor3d.tensor_spec().page_config(),
             MemoryConfig(updated_mem_config.buffer_type()),

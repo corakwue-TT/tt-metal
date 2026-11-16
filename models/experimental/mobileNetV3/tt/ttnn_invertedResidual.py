@@ -11,7 +11,6 @@ from models.tt_cnn.tt.builder import TtConv2d
 
 from models.tt_cnn.tt.builder import (
     AutoShardedStrategyConfiguration,
-    WidthShardedStrategyConfiguration,
 )
 
 
@@ -106,9 +105,7 @@ class Conv2dNormActivation:
             dilation=dilation,
             groups=groups,
             activation=activation,
-            sharding_strategy=WidthShardedStrategyConfiguration(reshard_if_not_optimal=True)
-            if groups > 1 and input_height // stride[0] <= 7
-            else AutoShardedStrategyConfiguration(),
+            sharding_strategy=AutoShardedStrategyConfiguration(),
         )
         self.conv = TtConv2d(self.conv_config, device)
 

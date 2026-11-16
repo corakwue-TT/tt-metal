@@ -11,7 +11,6 @@ namespace ttnn::prim {
 struct FillPadParams {
     ttnn::PadValue fill_value;
     tt::tt_metal::MemoryConfig output_mem_config;
-    std::optional<tt::tt_metal::CoreRangeSet> sub_core_grids;
 };
 
 struct FillPadInputs {

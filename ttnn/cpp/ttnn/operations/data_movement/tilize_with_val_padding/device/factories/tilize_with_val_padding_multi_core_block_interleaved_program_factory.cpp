@@ -18,6 +18,7 @@
 
 using namespace tt::constants;
 using namespace tt::tt_metal;
+using namespace tt::tt_metal::experimental;
 
 namespace ttnn::prim {
 

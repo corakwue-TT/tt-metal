@@ -7,7 +7,6 @@
 
 #include "ttnn/tensor/tensor_utils.hpp"
 #include "ttnn/device_operation.hpp"
-#include <tt-metalium/experimental/tensor_layout_apis_with_custom_alignment.hpp>
 
 namespace ttnn::experimental::prim {
 
@@ -34,7 +33,7 @@ tt::tt_metal::TensorSpec RotateHalfDeviceOperation::compute_output_specs(
     const Tensor& input_tensor = tensor_args;
     return tt::tt_metal::TensorSpec(
         input_tensor.logical_shape(),
-        tt::tt_metal::experimental::tensor_layout_from_padded_shape(
+        TensorLayout::fromPaddedShape(
             input_tensor.dtype(),
             PageConfig(Layout::TILE),
             operation_attributes.output_mem_config,

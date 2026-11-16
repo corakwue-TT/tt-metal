@@ -328,36 +328,39 @@ void kernel_main() {
                 // multicasts on the same reserved path (as for the weight mcast).
                 noc.async_write_multicast(
                     CoreLocalMem<uint32_t>(counts_l1),
-                    cb_counts_scratch_obj,
+                    MulticastEndpoint{},
                     counts_page_size,
                     counts_num_receivers,
                     {.offset_bytes = 0},
                     {.noc_x_start = cb_nx_start,
                      .noc_y_start = cb_ny_start,
                      .noc_x_end = cb_nx_end,
-                     .noc_y_end = cb_ny_end},
+                     .noc_y_end = cb_ny_end,
+                     .addr = counts_l1},
                     /*linked=*/true);
                 noc.async_write_multicast(
                     CoreLocalMem<uint32_t>(idx_l1),
-                    cb_idx_scratch_obj,
+                    MulticastEndpoint{},
                     idx_page_size,
                     counts_num_receivers,
                     {.offset_bytes = 0},
                     {.noc_x_start = cb_nx_start,
                      .noc_y_start = cb_ny_start,
                      .noc_x_end = cb_nx_end,
-                     .noc_y_end = cb_ny_end},
+                     .noc_y_end = cb_ny_end,
+                     .addr = idx_l1},
                     /*linked=*/true);
                 noc.async_write_multicast(
                     CoreLocalMem<uint32_t>(start_l1),
-                    cb_start_scratch_obj,
+                    MulticastEndpoint{},
                     start_page_size,
                     counts_num_receivers,
                     {.offset_bytes = 0},
                     {.noc_x_start = cb_nx_start,
                      .noc_y_start = cb_ny_start,
                      .noc_x_end = cb_nx_end,
-                     .noc_y_end = cb_ny_end},
+                     .noc_y_end = cb_ny_end,
+                     .addr = start_l1},
                     /*linked=*/true);
                 noc.async_writes_flushed();
                 counts_valid_sem.set(1);
@@ -671,6 +674,7 @@ void kernel_main() {
                 in0_ready_sem.wait(GRID_X_NOC - 1);
                 in0_ready_sem.set(0);
                 const uint32_t src_l1 = cb_x_tilized_obj.get_read_ptr();
+                const uint32_t dst_l1 = x_stage_obj.get_write_ptr();
                 const uint32_t mcast_bytes = valid_tile_rows * in0_block_w_gu * x_tile_bytes;
                 // Loopback (INCL_SRC) delivers the owner's own cb_in0_x copy, so the
                 // reader stays its only producer. linked=true orders the valid-sem
@@ -678,14 +682,15 @@ void kernel_main() {
                 if (mcast_bytes > 0) {
                     noc.async_write_multicast<NocOptions::MCAST_INCL_SRC>(
                         CoreLocalMem<uint32_t>(src_l1),
-                        x_stage_obj,
+                        MulticastEndpoint{},
                         mcast_bytes,
                         GRID_X_NOC,
                         {.offset_bytes = 0},
                         {.noc_x_start = in0_mcast_nx_start,
                          .noc_y_start = in0_mcast_ny_start,
                          .noc_x_end = in0_mcast_nx_end,
-                         .noc_y_end = in0_mcast_ny_end},
+                         .noc_y_end = in0_mcast_ny_end,
+                         .addr = dst_l1},
                         /*linked=*/true);
                 }
                 noc.async_writes_flushed();
@@ -740,14 +745,15 @@ void kernel_main() {
                 if (mcast_bytes > 0) {
                     noc.async_write_multicast(
                         CoreLocalMem<uint32_t>(block_start),
-                        x_stage_obj,
+                        MulticastEndpoint{},
                         mcast_bytes,
                         in0_num_receivers,
                         {.offset_bytes = 0},
                         {.noc_x_start = in0_mcast_nx_start,
                          .noc_y_start = in0_mcast_ny_start,
                          .noc_x_end = in0_mcast_nx_end,
-                         .noc_y_end = in0_mcast_ny_end},
+                         .noc_y_end = in0_mcast_ny_end,
+                         .addr = block_start},
                         /*linked=*/true);
                 }
                 x_stage_obj.push_back(g_in0_block_tiles_max);
@@ -854,28 +860,30 @@ void kernel_main() {
                     // holds the path itself.
                     noc.async_write_multicast(
                         CoreLocalMem<uint32_t>(gate_block_start),
-                        cb_in1_gate_obj,
+                        MulticastEndpoint{},
                         gate_block_bytes,
                         in1_num_receivers,
                         {.offset_bytes = 0},
                         {.noc_x_start = in1_mcast_nx_start,
                          .noc_y_start = in1_mcast_ny_start,
                          .noc_x_end = in1_mcast_nx_end,
-                         .noc_y_end = in1_mcast_ny_end},
+                         .noc_y_end = in1_mcast_ny_end,
+                         .addr = gate_block_start},
                         /*linked=*/true);
 
                     if constexpr (reader_mcasts_up) {
                         const uint32_t up_block_bytes = g_in1_block_num_tiles * up_tile_bytes;
                         noc.async_write_multicast(
                             CoreLocalMem<uint32_t>(up_block_start),
-                            cb_in1_up_obj,
+                            MulticastEndpoint{},
                             up_block_bytes,
                             in1_num_receivers,
                             {.offset_bytes = 0},
                             {.noc_x_start = in1_mcast_nx_start,
                              .noc_y_start = in1_mcast_ny_start,
                              .noc_x_end = in1_mcast_nx_end,
-                             .noc_y_end = in1_mcast_ny_end},
+                             .noc_y_end = in1_mcast_ny_end,
+                             .addr = up_block_start},
                             /*linked=*/true);
                     }
                 }
@@ -1032,14 +1040,15 @@ void kernel_main() {
                     // mcast below for the full rationale).
                     noc.async_write_multicast(
                         CoreLocalMem<uint32_t>(in1_block_start),
-                        cb_in1_down_obj,
+                        MulticastEndpoint{},
                         block_bytes,
                         in1_num_receivers,
                         {.offset_bytes = 0},
                         {.noc_x_start = in1_mcast_nx_start,
                          .noc_y_start = in1_mcast_ny_start,
                          .noc_x_end = in1_mcast_nx_end,
-                         .noc_y_end = in1_mcast_ny_end},
+                         .noc_y_end = in1_mcast_ny_end,
+                         .addr = in1_block_start},
                         /*linked=*/true);
                     noc.async_writes_flushed();
 
@@ -1089,14 +1098,15 @@ void kernel_main() {
                 if (mcast_bytes > 0) {
                     noc.async_write_multicast<NocOptions::MCAST_INCL_SRC>(
                         CoreLocalMem<uint32_t>(src_l1),
-                        cb_in0_down_full_obj,
+                        MulticastEndpoint{},
                         mcast_bytes,
                         GRID_X_NOC,
                         {.offset_bytes = 0},
                         {.noc_x_start = mrow_first_nx,
                          .noc_y_start = mrow_first_ny,
                          .noc_x_end = mrow_last_nx,
-                         .noc_y_end = mrow_last_ny},
+                         .noc_y_end = mrow_last_ny,
+                         .addr = dst_l1},
                         /*linked=*/true);
                 }
                 noc.async_writes_flushed();

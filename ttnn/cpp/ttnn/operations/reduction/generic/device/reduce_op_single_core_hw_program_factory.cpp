@@ -20,6 +20,7 @@ ReduceDeviceOperation::ReduceSingleCoreHwProgramFactory::create_program_artifact
     tensor_return_value_t& tensor_return_value) {
     using namespace tt;
     using namespace tt::tt_metal;
+    using namespace tt::tt_metal::experimental;
     const auto& a = tensor_args.mesh_tensor();
     const auto& output = tensor_return_value.mesh_tensor();
     const auto& shape = a.padded_shape();
@@ -313,12 +314,13 @@ ReduceDeviceOperation::ReduceSingleCoreHwProgramFactory::create_program_artifact
     return ttnn::device_operation::ProgramArtifacts{.spec = std::move(spec), .run_params = std::move(run_args)};
 }
 
-tt::tt_metal::ProgramRunArgs ReduceDeviceOperation::ReduceSingleCoreHwProgramFactory::override_runtime_arguments(
+tt::tt_metal::experimental::ProgramRunArgs
+ReduceDeviceOperation::ReduceSingleCoreHwProgramFactory::override_runtime_arguments(
     const operation_attributes_t& operation_attributes,
     const tensor_args_t& tensor_args,
     tensor_return_value_t& tensor_return_value,
     const std::optional<ttnn::MeshCoordinate>& /*mesh_dispatch_coordinate*/) {
-    using namespace tt::tt_metal;
+    using namespace tt::tt_metal::experimental;
 
     // Names must match create_program_artifacts.
     const KernelSpecName COMPUTE{"compute"};

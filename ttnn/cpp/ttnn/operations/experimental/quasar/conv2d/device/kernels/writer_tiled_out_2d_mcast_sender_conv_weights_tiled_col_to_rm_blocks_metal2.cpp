@@ -80,6 +80,7 @@ void kernel_main() {
     Noc noc;
     Semaphore weights_mcast_sender_sem(sem::weights_mcast_sender);
     Semaphore weights_mcast_receiver_sem(sem::weights_mcast_receiver);
+    MulticastEndpoint mcast_ep;
     DataflowBuffer cb_weight_obj(dfb::weights);
 #ifdef FUSE_BIAS
     DataflowBuffer cb_bias_obj(dfb::bias);
@@ -89,6 +90,13 @@ void kernel_main() {
     DataflowBuffer cb_reader_indices_obj(dfb::reader_indices);
     DataflowBuffer cb_sharded_act_obj(dfb::act_sharded);
 #endif
+    // Pre-built mcast destination; .addr is updated per mcast call
+    McastDst mcast_dst = {
+        .noc_x_start = mcast_rect.noc_x_start,
+        .noc_y_start = mcast_rect.noc_y_start,
+        .noc_x_end = mcast_rect.noc_x_end,
+        .noc_y_end = mcast_rect.noc_y_end,
+        .addr = 0};
 
     const bool is_sender_core = get_arg(args::is_sender_core) > 0;
     const bool skip_work = get_arg(args::skip_work) > 0;
@@ -235,16 +243,14 @@ void kernel_main() {
 
                     // Now we have the block in the CB address, we can mcast to dests!
                     // num_dests must not include source, since we are NOT really doing a local copy!
+                    mcast_dst.addr = cb_weight_obj.get_write_ptr();
                     noc.async_write_multicast(
                         CoreLocalMem<uint32_t>(cb_weight_obj.get_write_ptr()),
-                        cb_weight_obj,
+                        mcast_ep,
                         weights_block_size_bytes,
                         weights_mcast_num_cores,
                         {},
-                        {.noc_x_start = mcast_rect.noc_x_start,
-                         .noc_y_start = mcast_rect.noc_y_start,
-                         .noc_x_end = mcast_rect.noc_x_end,
-                         .noc_y_end = mcast_rect.noc_y_end},
+                        mcast_dst,
                         true);
 
                     // Note: no need for write barrier, since these two multicasts are done on the same noc id and same
@@ -307,16 +313,14 @@ void kernel_main() {
 
                     // Now we have the block in the CB address, we can mcast to dests!
                     // num_dests must not include source, since we are NOT really doing a local copy!
+                    mcast_dst.addr = cb_bias_obj.get_write_ptr();
                     noc.async_write_multicast(
                         CoreLocalMem<uint32_t>(cb_bias_obj.get_write_ptr()),
-                        cb_bias_obj,
+                        mcast_ep,
                         bias_block_size_bytes,
                         weights_mcast_num_cores,
                         {},
-                        {.noc_x_start = mcast_rect.noc_x_start,
-                         .noc_y_start = mcast_rect.noc_y_start,
-                         .noc_x_end = mcast_rect.noc_x_end,
-                         .noc_y_end = mcast_rect.noc_y_end},
+                        mcast_dst,
                         true);
 
                     // Note: no need for write barrier, since these two multicasts are done on the same noc id and same

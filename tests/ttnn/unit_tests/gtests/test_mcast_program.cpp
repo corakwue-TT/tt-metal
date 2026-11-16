@@ -34,8 +34,8 @@ TEST_F(McastHostFixture, ProgramBindingAllocatesOnceAndAppendsResolvedIds) {
     KernelDescriptor kernel;
     kernel.core_ranges = participants;
     EXPECT_ANY_THROW(mcast.attach(descriptor, "weights", std::array{std::ref(kernel)}, 0));
-    ProgramSpec spec;
-    ProgramRunArgs run_args;
+    tt::tt_metal::experimental::ProgramSpec spec;
+    tt::tt_metal::experimental::ProgramRunArgs run_args;
     EXPECT_ANY_THROW(mcast.attach(spec, run_args, "weights", {}));
 }
 

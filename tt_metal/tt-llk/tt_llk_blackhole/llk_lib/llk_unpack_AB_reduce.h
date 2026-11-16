@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <sys/_stdint.h>
+
 #include <cstdint>
 
 #include "ckernel.h"
@@ -21,171 +23,88 @@ using namespace ckernel;
 using namespace ckernel::unpacker;
 
 /**
- * @brief Whether the reduce unpacks the scaler into SrcA and the data into SrcB.
+ * @brief Configures the unpacker MOP for reduction operations. Handles both tiny tiles (face_r_dim < 16) and standard tiles.
  *
- * True for SUM/AVG REDUCE_ROW, whose MVMUL takes the scaler from SrcA.
- *
- * @tparam pool_type: Type of pooling operation, values = <SUM/AVG/MAX>
- * @tparam reduce_dim: Dimension along which to reduce, values = <REDUCE_ROW/REDUCE_COL/REDUCE_SCALAR>
- */
-template <PoolType pool_type, ReduceDim reduce_dim>
-constexpr bool _llk_unpack_AB_reduce_swaps_operands_()
-{
-    return (reduce_dim == ReduceDim::REDUCE_ROW) && (pool_type != PoolType::MAX);
-}
-
-/**
- * @brief Whether the swapped path reads one row per scaler face, into a zeroed SrcA.
- *
- * True for a scaler shorter than a face, e.g. [1,32]; the zeros keep the result's other columns zero. A full-height
- * scaler face is read whole, so its rows past the first must be zero, as in a standard reduce scaler tile.
- *
- * @param tensor_shape_scaler: Shape of the scaler operand.
- */
-inline bool _llk_unpack_AB_reduce_scaler_row_only_(const ckernel::TensorShape tensor_shape_scaler)
-{
-    return tensor_shape_scaler.face_r_dim < FACE_R_DIM;
-}
-
-/**
- * @brief Whether the swapped path reads a 32x32 scaler in one UNPACR, like the data.
- *
- * @param tensor_shape: Shape of the data operand.
- * @param tensor_shape_scaler: Shape of the scaler operand.
- */
-inline bool _llk_unpack_AB_reduce_scaler_whole_tile_(const ckernel::TensorShape tensor_shape, const ckernel::TensorShape tensor_shape_scaler)
-{
-    return tensor_shape.total_num_faces() == MAX_NUM_FACES && tensor_shape_scaler.total_num_faces() == MAX_NUM_FACES &&
-           !_llk_unpack_AB_reduce_scaler_row_only_(tensor_shape_scaler);
-}
-
-/**
- * @brief Configures the unpacker MOP for reduction operations.
- *
- * The data is unpacked face by face, or in one UNPACR for a 4-face SUM/AVG REDUCE_ROW. The scaler gives the first
- * row of one of its faces per data face, cycling through its faces when it has fewer than the data. The swapped
- * path can read scaler faces whole (see @ref _llk_unpack_AB_reduce_scaler_row_only_).
+ * @note For full 4-face SUM/AVG REDUCE_ROW, a single UNPACR path unpacks all faces in a single instruction.
  *
  * @tparam pool_type: Type of pooling operation, values = <SUM/AVG/MAX>
  * @tparam reduce_dim: Dimension along which to reduce, values = <REDUCE_ROW/REDUCE_COL/REDUCE_SCALAR>
- * @param tensor_shape: Shape of the data operand.
- * @param tensor_shape_scaler: Shape of the scaler operand.
+ * @param tensor_shape: Shape of the tensor, including face_r_dim and num_faces.
  *
- * @note For faces shorter than 16 rows, the data bank is cleared before each face.
+ * @note For tiny tiles (face_r_dim < 16), padding is applied to prevent incorrect outputs.
  * @note For REDUCE_SCALAR operations, SrcA is cleared before unpacking because SrcA is clobbered in the Math kernel.
- * @note With a short scaler on the swapped path, the unpacker's own SrcA bank is zeroed before each scaler unpack.
  */
 template <PoolType pool_type, ReduceDim reduce_dim>
-inline void _llk_unpack_AB_reduce_mop_config_(const ckernel::TensorShape tensor_shape, const ckernel::TensorShape tensor_shape_scaler)
+inline void _llk_unpack_AB_reduce_mop_config_(const ckernel::TensorShape tensor_shape)
 {
+    // Validate tensor shape for tile-dependent operations
     LLK_VALIDATE_TENSOR_SHAPE_UNPACK("_llk_unpack_AB_reduce_mop_config_", tensor_shape);
-    LLK_VALIDATE_TENSOR_SHAPE_UNPACK("_llk_unpack_AB_reduce_mop_config_", tensor_shape_scaler);
 
-    constexpr bool is_max        = pool_type == PoolType::MAX;
-    constexpr bool is_scalar     = reduce_dim == ReduceDim::REDUCE_SCALAR;
-    constexpr bool swap_operands = _llk_unpack_AB_reduce_swaps_operands_<pool_type, reduce_dim>();
+    constexpr bool is_max                  = pool_type == PoolType::MAX;
+    constexpr bool swap_operands           = (reduce_dim == ReduceDim::REDUCE_ROW) && !is_max;
+    constexpr bool is_scalar               = reduce_dim == ReduceDim::REDUCE_SCALAR;
+    constexpr std::uint32_t REPLAY_BUF_LEN = 2;
+    constexpr std::uint32_t clear_src      = swap_operands ? Srcs::SrcB : Srcs::SrcA;
 
-    constexpr std::uint32_t data_unpacker  = swap_operands ? Srcs::SrcB : Srcs::SrcA;
-    constexpr std::uint32_t scaler_adc     = swap_operands ? p_setadc::UNP_A : p_setadc::UNP_B;
-    constexpr std::uint32_t data_clear_val = is_max ? p_unpacr_nop::CLR_SRC_NEGINF : p_unpacr_nop::CLR_SRC_0;
+    const bool full_tile          = swap_operands && (tensor_shape.total_num_faces() == 4);
+    const bool is_tiny            = tensor_shape.face_r_dim < FACE_R_DIM;
+    const std::uint32_t innerloop = full_tile ? 1 : tensor_shape.total_num_faces();
+    const std::uint32_t clear_val = is_max ? p_unpacr_nop::CLR_SRC_NEGINF : p_unpacr_nop::CLR_SRC_0;
 
-    const std::uint32_t num_faces        = tensor_shape.total_num_faces();
-    const std::uint32_t num_scaler_faces = tensor_shape_scaler.total_num_faces();
-
-    if (swap_operands && num_faces == MAX_NUM_FACES)
-    {
-        // One handoff per tile: the whole data tile, and scaler faces 0 and 1 into the SrcA faces MVMUL reads.
-        LLK_ASSERT(tensor_shape_scaler.num_faces_c_dim == tensor_shape.num_faces_c_dim, "The scaler needs a face for every column of data faces");
-        const bool clear_scaler = _llk_unpack_AB_reduce_scaler_row_only_(tensor_shape_scaler);
-        if (_llk_unpack_AB_reduce_scaler_whole_tile_(tensor_shape, tensor_shape_scaler))
-        {
-            constexpr std::uint32_t whole_tile_replay_len = 2;
-            load_replay_buf(
-                0,
-                whole_tile_replay_len,
-                []
-                {
-                    TTI_UNPACR(SrcA, 0b0, 0, 0, 0, 1, 1 /*SetDatValid*/, p_unpacr::RAREFYB_DISABLE, 0, 0, 0, 0, 1);
-                    TTI_UNPACR(SrcB, 0b0, 0, 0, 0, 1, 1 /*SetDatValid*/, p_unpacr::RAREFYB_DISABLE, 0, 0, 0, 0, 1);
-                });
-            ckernel_template tmp(1, 1, lltt::replay_insn(0, whole_tile_replay_len));
-            tmp.program();
-            return;
-        }
-        const std::uint32_t replay_len = (clear_scaler ? 1 : 0) + 3;
-        load_replay_buf(
-            0,
-            replay_len,
-            [clear_scaler]
-            {
-                if (clear_scaler)
-                {
-                    TTI_UNPACR_NOP(SrcA, 0, 0, 0, 0, p_unpacr_nop::WAIT_LIKE_UNPACR, 0, p_unpacr_nop::CLR_SRC_0, p_unpacr_nop::CLR_SRC);
-                }
-                TTI_UNPACR(SrcA, 0b00010001 /*ch0_z+=1, ch1_z+=1*/, 0, 0, 0, 1, 0 /*SetDatValid*/, p_unpacr::RAREFYB_DISABLE, 0, 0, 0, 0, 1);
-                TTI_UNPACR(SrcA, 0b0, 0, 0, 0, 1, 1 /*SetDatValid*/, p_unpacr::RAREFYB_DISABLE, 0, 0, 0, 0, 1);
-                TTI_UNPACR(SrcB, 0b0, 0, 0, 0, 1, 1 /*SetDatValid*/, p_unpacr::RAREFYB_DISABLE, 0, 0, 0, 0, 1);
-            });
-
-        ckernel_template tmp(1, 1, lltt::replay_insn(0, replay_len));
-        tmp.program();
-        return;
-    }
-
-    // One handoff per data face; the scaler wraps when it has fewer faces.
-    const bool wrap_scaler = num_scaler_faces < num_faces;
-    LLK_ASSERT(
-        !wrap_scaler || tensor_shape_scaler.num_faces_c_dim == tensor_shape.num_faces_c_dim,
-        "A scaler with fewer faces than the data needs a face for every column of data faces");
-    const std::uint32_t outerloop = wrap_scaler ? num_faces / num_scaler_faces : 1;
-    const std::uint32_t innerloop = wrap_scaler ? num_scaler_faces : num_faces;
-    const bool clear_data         = is_scalar || tensor_shape.face_r_dim < FACE_R_DIM;
-    const bool clear_scaler       = swap_operands && _llk_unpack_AB_reduce_scaler_row_only_(tensor_shape_scaler);
-
-    const std::uint32_t replay_len = (clear_data ? 1 : 0) + (clear_scaler ? 1 : 0) + 2;
     load_replay_buf(
         0,
-        replay_len,
-        [clear_data, clear_scaler]
+        REPLAY_BUF_LEN,
+        [full_tile]
         {
-            if (clear_data)
+            if (full_tile)
             {
-                TTI_UNPACR_NOP(data_unpacker, 0, 0, 0, 0, p_unpacr_nop::WAIT_LIKE_UNPACR, 0, data_clear_val, p_unpacr_nop::CLR_SRC);
+                TTI_UNPACR(Srcs::SrcA, 0, 0, 0, 0, 1, 1, p_unpacr::RAREFYB_DISABLE, 0, 0, 0, 0, 1);
+                TTI_UNPACR(Srcs::SrcB, 0, 0, 0, 0, 1, 1, p_unpacr::RAREFYB_DISABLE, 0, 0, 0, 0, 1);
             }
-            if (clear_scaler)
+            else
             {
-                TTI_UNPACR_NOP(SrcA, 0, 0, 0, 0, p_unpacr_nop::WAIT_LIKE_UNPACR, 0, p_unpacr_nop::CLR_SRC_0, p_unpacr_nop::CLR_SRC);
+                TTI_UNPACR(Srcs::SrcA, 0b01, 0, 0, 0, 1, 1, p_unpacr::RAREFYB_DISABLE, 0, 0, 0, 0, 1);
+                TTI_UNPACR(Srcs::SrcB, 0b01, 0, 0, 0, 1, 1, p_unpacr::RAREFYB_DISABLE, 0, 0, 0, 0, 1);
             }
-            TTI_UNPACR(SrcA, 0b01 /*ch0_z+=1*/, 0, 0, 0, 1, 1 /*SetDatValid*/, p_unpacr::RAREFYB_DISABLE, 0, 0, 0, 0, 1);
-            TTI_UNPACR(SrcB, 0b01 /*ch0_z+=1*/, 0, 0, 0, 1, 1 /*SetDatValid*/, p_unpacr::RAREFYB_DISABLE, 0, 0, 0, 0, 1);
         });
 
-    ckernel_template tmp(outerloop, innerloop, lltt::replay_insn(0, replay_len));
-    if (wrap_scaler)
+    const std::uint32_t replay = lltt::replay_insn(0, REPLAY_BUF_LEN);
+
+    if (is_tiny || is_scalar)
     {
-        tmp.set_end_op(TT_OP_SETADCZW(scaler_adc, 0, 0, 0, 0, 0b0001));
+        ckernel_template tmp(
+            1, innerloop, TT_OP_UNPACR_NOP(clear_src, 0, 0, 0, 0, p_unpacr_nop::WAIT_LIKE_UNPACR, 0, clear_val, p_unpacr_nop::CLR_SRC), replay);
+        tmp.program();
     }
-    tmp.program();
+    else
+    {
+        ckernel_template tmp(1, innerloop, replay);
+        tmp.program();
+    }
 }
 
 /**
  * @brief Initialize the unpacker for reduce operations
  *
- * Configures haloize (transpose) for row reductions and each unpacker's datum count, then programs the MOP.
+ * Configures the unpacker hardware registers and MOP settings
+ * for reduction operations. This includes:
+ * - Setting up haloize mode for row reductions (transpose)
+ * - Configuring unpacker X dimension endpoints
+ * - Calling the MOP configuration routine
  *
  * @tparam pool_type: Type of pooling operation, values = <SUM/AVG/MAX>
  * @tparam reduce_dim: Dimension along which to reduce, values = <REDUCE_ROW/REDUCE_COL/REDUCE_SCALAR>
- * @param tensor_shape: Shape of the data operand (operand A).
- * @param tensor_shape_scaler: Shape of the scaler operand (operand B), e.g. [1,32].
+ * @param tensor_shape: Shape of the tensor, including face_r_dim and num_faces.
  *
- * @note For SUM/AVG REDUCE_ROW, operands are swapped: scaler→SrcA, data→SrcB. Configure unpacker 0 for the scaler
- *       and unpacker 1 for the data before this init, face geometry as well as formats.
+ * @note For SUM/AVG REDUCE_ROW, operands are swapped: scaler→SrcA, data→SrcB.
  * @note For MAX REDUCE_ROW, original layout is kept: data→SrcA (transposed via haloize), scaler→SrcB.
+ * @note For REDUCE_COL/REDUCE_SCALAR: Unpacker 0 (SrcA) reads face_r_dim*FACE_R_DIM datums,
+ *       Unpacker 1 (SrcB) reads one row (FACE_R_DIM datums).
  * @ref _llk_unpack_AB_reduce_ is the matching execute call.
  * @ref _llk_math_reduce_init_ is the matching init on the math thread (this is the scaler operand unpack pairing).
  */
 template <PoolType pool_type, ReduceDim reduce_dim>
-inline void _llk_unpack_AB_reduce_init_(const ckernel::TensorShape tensor_shape, const ckernel::TensorShape tensor_shape_scaler)
+inline void _llk_unpack_AB_reduce_init_(const ckernel::TensorShape tensor_shape)
 {
     // The partial-face clear picks CLR_SRC_NEGINF only for MAX, so MIN would pad SrcA with zero where it needs +inf.
     static_assert(
@@ -195,49 +114,28 @@ inline void _llk_unpack_AB_reduce_init_(const ckernel::TensorShape tensor_shape,
 
     // Validate tensor shape for tile-dependent operations
     LLK_VALIDATE_TENSOR_SHAPE_UNPACK("_llk_unpack_AB_reduce_init_", tensor_shape);
-    LLK_VALIDATE_TENSOR_SHAPE_UNPACK("_llk_unpack_AB_reduce_init_", tensor_shape_scaler);
 
-    constexpr bool swap_operands       = _llk_unpack_AB_reduce_swaps_operands_<pool_type, reduce_dim>();
-    constexpr std::uint32_t data_adc   = swap_operands ? p_setadc::UNP_B : p_setadc::UNP_A;
-    constexpr std::uint32_t scaler_adc = swap_operands ? p_setadc::UNP_A : p_setadc::UNP_B;
+    constexpr bool is_max        = pool_type == PoolType::MAX;
+    constexpr bool swap_operands = (reduce_dim == ReduceDim::REDUCE_ROW) && !is_max;
 
     cfg_reg_rmw_tensix<THCON_SEC0_REG2_Haloize_mode_RMW>((reduce_dim == ReduceDim::REDUCE_ROW));
 
-    if (swap_operands && tensor_shape.total_num_faces() == MAX_NUM_FACES)
+    const bool full_tile = swap_operands && (tensor_shape.total_num_faces() == 4);
+
+    if (full_tile)
     {
-        TT_SETADCXX(data_adc, MAX_NUM_FACES * FACE_R_DIM * FACE_C_DIM - 1, 0x0);
+        const std::uint32_t x_end = tensor_shape.total_num_faces() * FACE_R_DIM * FACE_C_DIM - 1;
+        TT_SETADCXX(p_setadc::UNP_A, x_end, 0x0);
+        TT_SETADCXX(p_setadc::UNP_B, x_end, 0x0);
     }
     else
     {
-        config_unpacker_x_end<data_adc>(tensor_shape.face_r_dim);
-    }
-    // The scaler reads one row per face, unless the swapped path reads it whole.
-    if (swap_operands && _llk_unpack_AB_reduce_scaler_whole_tile_(tensor_shape, tensor_shape_scaler))
-    {
-        TT_SETADCXX(scaler_adc, MAX_NUM_FACES * FACE_R_DIM * FACE_C_DIM - 1, 0x0);
-    }
-    else
-    {
-        config_unpacker_x_end<scaler_adc>(swap_operands && !_llk_unpack_AB_reduce_scaler_row_only_(tensor_shape_scaler) ? FACE_R_DIM : 1);
+        config_unpacker_x_end<p_setadc::UNP_A>(tensor_shape.face_r_dim);
+        config_unpacker_x_end<p_setadc::UNP_B>(swap_operands ? tensor_shape.face_r_dim : 1);
     }
 
-    _llk_unpack_AB_reduce_mop_config_<pool_type, reduce_dim>(tensor_shape, tensor_shape_scaler);
-}
-
-/**
- * @brief Initialize the unpacker for reduce operations with a scaler shaped like the data.
- *
- * Forwards to the two-shape init with the scaler's shape equal to the data's.
- *
- * @tparam pool_type: Type of pooling operation, values = <SUM/AVG/MAX>
- * @tparam reduce_dim: Dimension along which to reduce, values = <REDUCE_ROW/REDUCE_COL/REDUCE_SCALAR>
- * @param tensor_shape: Shape of both the data and the scaler.
- * @ref _llk_unpack_AB_reduce_ is the matching execute call.
- */
-template <PoolType pool_type, ReduceDim reduce_dim>
-inline void _llk_unpack_AB_reduce_init_(const ckernel::TensorShape tensor_shape)
-{
-    _llk_unpack_AB_reduce_init_<pool_type, reduce_dim>(tensor_shape, tensor_shape);
+    // Configure unpack MOP
+    _llk_unpack_AB_reduce_mop_config_<pool_type, reduce_dim>(tensor_shape);
 }
 
 /**
@@ -272,7 +170,8 @@ inline void _llk_unpack_AB_reduce_(const std::uint32_t address_a, const std::uin
     // Wait for free context
     wait_for_next_context(2);
 
-    constexpr bool swap_operands = _llk_unpack_AB_reduce_swaps_operands_<pool_type, reduce_dim>();
+    constexpr bool is_max        = pool_type == PoolType::MAX;
+    constexpr bool swap_operands = (reduce_dim == ReduceDim::REDUCE_ROW) && !is_max;
 
     // SUM/AVG REDUCE_ROW swaps operands (scaler→SrcA, data→SrcB), no transpose needed.
     // MAX REDUCE_ROW keeps original layout (data→SrcA transposed, scaler→SrcB) — GMPOOL only reads SrcA.

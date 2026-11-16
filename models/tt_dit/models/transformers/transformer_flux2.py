@@ -212,7 +212,6 @@ class Flux2Transformer(Module):
         padding_config: PaddingConfig | None,
         is_fsdp: bool = False,
         shard_prompt: bool = False,
-        guidance_embeds: bool = True,
     ) -> None:
         super().__init__()
 
@@ -223,7 +222,7 @@ class Flux2Transformer(Module):
             embedding_dim=inner_dim,
             pooled_projection_dim=0,
             bias=False,
-            with_guidance=guidance_embeds,
+            with_guidance=True,
             mesh_device=device,
         )
 
@@ -348,7 +347,7 @@ class Flux2Transformer(Module):
         spatial: ttnn.Tensor,
         embedded_prompt: ttnn.Tensor,
         timestep: ttnn.Tensor,
-        guidance: ttnn.Tensor | None,
+        guidance: ttnn.Tensor,
         spatial_rope: tuple[ttnn.Tensor, ttnn.Tensor],
         prompt_rope: tuple[ttnn.Tensor, ttnn.Tensor],
         combined_rope: tuple[ttnn.Tensor, ttnn.Tensor],

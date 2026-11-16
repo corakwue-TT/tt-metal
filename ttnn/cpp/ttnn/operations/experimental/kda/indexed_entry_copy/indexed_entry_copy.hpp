@@ -5,7 +5,6 @@
 #pragma once
 
 #include <cstdint>
-#include <optional>
 
 #include "ttnn/tensor/tensor.hpp"
 
@@ -16,7 +15,6 @@ ttnn::Tensor indexed_entry_copy(
     const Tensor& destination,
     const Tensor& index,
     uint32_t index_scale,
-    uint32_t index_offset,
-    const std::optional<Tensor>& zero_fill_at_zero = std::nullopt);
+    uint32_t index_offset);
 
 }  // namespace ttnn::experimental::kda

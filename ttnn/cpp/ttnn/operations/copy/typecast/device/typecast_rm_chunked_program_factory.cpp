@@ -8,7 +8,6 @@
 #include <tt-metalium/constants.hpp>
 #include <tt-metalium/host_api.hpp>
 #include <tt-metalium/math.hpp>
-#include <tt-metalium/mesh_buffer.hpp>
 #include <tt_stl/span.hpp>
 
 #include "ttnn/operations/core/data_movement_kernel/datamovement_kernel_config.hpp"
@@ -16,7 +15,7 @@
 namespace ttnn::prim {
 
 using namespace tt::constants;
-using namespace tt::tt_metal;
+using namespace tt::tt_metal::experimental;
 
 namespace {
 struct ChunkSizeConfig {
@@ -81,8 +80,8 @@ ttnn::device_operation::ProgramArtifacts TypecastRowMajorChunkedProgramFactory::
 
     const auto* device = input.device();
 
-    const auto* src_buffer = &input.mesh_buffer();
-    const auto* dst_buffer = &output.mesh_buffer();
+    Buffer* src_buffer = input.buffer();
+    Buffer* dst_buffer = output.buffer();
 
     // Get row information
     const auto& padded_shape = input.padded_shape();

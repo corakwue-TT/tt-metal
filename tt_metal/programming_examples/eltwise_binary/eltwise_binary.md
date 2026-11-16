@@ -26,7 +26,7 @@ auto mesh_device = distributed::MeshDevice::create_unit_mesh(device_id);
 distributed::MeshCommandQueue& cq = mesh_device->mesh_command_queue();
 distributed::MeshWorkload workload;
 auto device_range = distributed::MeshCoordinateRange(mesh_device->shape());
-Program program = CreateProgram(*mesh_device);
+Program program = CreateProgram();
 constexpr CoreCoord core = {0, 0};
 ```
 

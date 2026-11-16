@@ -101,7 +101,6 @@ ttsl::hash::hash_t HighBwAllGatherDeviceOperation::compute_program_hash(
         args.output_mem_config,
         args.cluster_axis,
         args.linearized_mesh_ring,
-        args.full_mesh_outer_axis,
         args.fabric_config,
         args.axis_num_devices,
         args.num_devices,
@@ -493,8 +492,7 @@ std::tuple<HighBwAllGatherParams, HighBwAllGatherInputs> high_bw_all_gather_buil
     const std::optional<Tensor>& gathered_prefix_tensor,
     uint32_t gathered_slab_global,
     const std::optional<GlobalSemaphore>& ready_semaphore,
-    const std::optional<GlobalSemaphore>& data_valid_semaphore,
-    uint32_t full_mesh_outer_axis) {
+    const std::optional<GlobalSemaphore>& data_valid_semaphore) {
     // Query the machine and Fabric setup info.
     // This info is also effectively part of CCL args and hence should be in the program-cache hash,
     // so we include it in HighBwAllGatherParams.
@@ -504,12 +502,6 @@ std::tuple<HighBwAllGatherParams, HighBwAllGatherInputs> high_bw_all_gather_buil
     TT_FATAL(
         mesh_shape.dims() == 2, "high_bw_all_gather requires a two-dimensional device mesh shape, got {}", mesh_shape);
     const bool linearized_mesh_ring = !cluster_axis.has_value();
-    TT_FATAL(
-        full_mesh_outer_axis < 2 && (linearized_mesh_ring || full_mesh_outer_axis == 0),
-        "high_bw_all_gather full_mesh_outer_axis must be 0 or 1, and only applies when cluster_axis is None; "
-        "got full_mesh_outer_axis={} with cluster_axis={}",
-        full_mesh_outer_axis,
-        cluster_axis);
     if (cluster_axis.has_value()) {
         TT_FATAL(
             *cluster_axis < 2 && *cluster_axis < mesh_shape.dims(),
@@ -585,7 +577,6 @@ std::tuple<HighBwAllGatherParams, HighBwAllGatherInputs> high_bw_all_gather_buil
             .output_mem_config = output_tensor.memory_config(),
             .cluster_axis = cluster_axis.value_or(0),
             .linearized_mesh_ring = linearized_mesh_ring,
-            .full_mesh_outer_axis = full_mesh_outer_axis,
             .fabric_config = fabric_config,
             .axis_num_devices = axis_num_devices,
             .num_devices = num_devices,
@@ -628,8 +619,7 @@ Tensor high_bw_all_gather(
     const std::optional<Tensor>& gathered_prefix_tensor,
     uint32_t gathered_slab_global,
     const std::optional<GlobalSemaphore>& ready_semaphore,
-    const std::optional<GlobalSemaphore>& data_valid_semaphore,
-    uint32_t full_mesh_outer_axis) {
+    const std::optional<GlobalSemaphore>& data_valid_semaphore) {
     auto [params, inputs] = ttnn::operations::experimental::high_bw_all_gather::high_bw_all_gather_build_operation_args(
         input_tensor,
         output_tensor,
@@ -646,8 +636,7 @@ Tensor high_bw_all_gather(
         gathered_prefix_tensor,
         gathered_slab_global,
         ready_semaphore,
-        data_valid_semaphore,
-        full_mesh_outer_axis);
+        data_valid_semaphore);
     return ttnn::device_operation::launch<
         ttnn::operations::experimental::high_bw_all_gather::HighBwAllGatherDeviceOperation>(params, inputs);
 }

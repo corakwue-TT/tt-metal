@@ -145,6 +145,7 @@ class Attention(Module):
             exp_approx_mode=False,  # NOTE: False is more correct
         )
 
+        self.ring_sdpa_worker_grid = None  # (full_grid.x, full_grid.y - 5)
         self.ring_sdpa_program_config = {}
         self.sdpa_compute_kernel_config = ttnn.init_device_compute_kernel_config(
             self.mesh_device.arch(),
@@ -274,7 +275,7 @@ class Attention(Module):
                 ring_chunk_size = ring_chunk_size[-1]
 
             self.ring_sdpa_program_config[per_device_seq_len] = ttnn.SDPAProgramConfig(
-                compute_with_storage_grid_size=self.get_ring_sdpa_core_grid(per_device_seq_len),
+                compute_with_storage_grid_size=self.ring_sdpa_worker_grid,
                 q_chunk_size=ring_chunk_size[0],
                 k_chunk_size=ring_chunk_size[1],
                 exp_approx_mode=False,  # NOTE: False is more correct
@@ -608,6 +609,9 @@ class Attention(Module):
                 persistent_joint_k = self.ccl_manager.get_ag_ping_pong_buffer(add_k.shape, 2, sp_axis)
                 persistent_joint_v = self.ccl_manager.get_ag_ping_pong_buffer(add_v.shape, 2, sp_axis)
 
+        if self.ring_sdpa_worker_grid is None:
+            self.ring_sdpa_worker_grid = self.get_ring_sdpa_core_grid(sequence_1_length)
+
         if self.parallel_config.sequence_parallel.factor > 1:
             spatial, sequence_2, _lse = ttnn.transformer.ring_joint_scaled_dot_product_attention(
                 q,
@@ -636,7 +640,7 @@ class Attention(Module):
                 mesh_device=self.mesh_device,
                 topology=self.ccl_manager.topology,
                 subdevice_id=self.ccl_manager.ccl_sub_device_id,
-                ccl_core_grid_offset=(0, self.get_ring_sdpa_core_grid(sequence_1_length)[1]),
+                ccl_core_grid_offset=(0, self.ring_sdpa_worker_grid[1]),
                 persistent_output_buffer_joint_k=persistent_joint_k,
                 persistent_output_buffer_joint_v=persistent_joint_v,
             )

@@ -7,7 +7,7 @@ import math
 import ttnn
 from models.demos.vision.segmentation.segformer.tt.common import Conv
 from models.demos.vision.segmentation.segformer.tt.ttnn_segformer_mlp import TtSegformerMLP
-from tt_py_test_utils_common.ttnn_utility_functions import get_shard_grid_from_num_cores
+from tests.ttnn.ttnn_utility_fuction import get_shard_grid_from_num_cores
 
 
 def torch_to_ttnn(input, device, layout=ttnn.TILE_LAYOUT):
@@ -98,9 +98,7 @@ class TtSegformerDecodeHead:
         ttnn.deallocate(all_hidden_states[2])
         ttnn.deallocate(all_hidden_states[3])
 
-        concated_tensor_tile = ttnn.to_layout(
-            concated_tensor, ttnn.TILE_LAYOUT, dtype=ttnn.bfloat8_b, memory_config=ttnn.DRAM_MEMORY_CONFIG
-        )
+        concated_tensor_tile = ttnn.to_layout(concated_tensor, ttnn.TILE_LAYOUT, dtype=ttnn.bfloat8_b)
         ttnn.deallocate(concated_tensor)
 
         hidden_states, __, __ = self.linear_fuse(device, concated_tensor_tile)

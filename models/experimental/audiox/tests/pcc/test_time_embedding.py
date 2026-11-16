@@ -7,7 +7,7 @@ import ttnn
 
 from models.experimental.audiox.reference.time_embedding import TimestepEmbedding
 from models.experimental.audiox.tt.time_embedding import TtTimestepEmbedding
-from tt_py_test_utils_common.utils_for_testing import assert_with_pcc
+from tests.ttnn.utils_for_testing import assert_with_pcc
 
 
 PCC_THRESHOLD = 0.99

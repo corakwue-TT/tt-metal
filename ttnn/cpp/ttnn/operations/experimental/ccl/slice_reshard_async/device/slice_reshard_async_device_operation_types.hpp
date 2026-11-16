@@ -57,8 +57,7 @@ struct SliceReshardAsyncParams {
         topology(topology),
         ring_size(ring_size) {}
 
-    // Reflection / printing fields. The program-cache key is
-    // SliceReshardAsyncDeviceOperation::compute_program_hash.
+    // Program-cache hash / canonical-key fields.
     static constexpr auto attribute_names = std::make_tuple(
         "dim",
         "output_dim_offset",

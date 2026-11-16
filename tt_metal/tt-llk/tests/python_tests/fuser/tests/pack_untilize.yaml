@@ -5,7 +5,7 @@ operands:
     tile_dims: all
     dims: [256, 256]
     format: "Float16_b"
-  - name: "output1"
+  - name: "output"
     tile_dims: all
     dims: [256, 256]
     format: "Float16_b"
@@ -13,12 +13,12 @@ operands:
 operations:
   - math:
       - type: "Fpu"
-        block_tiles: [2, 4]
+        block_size: [64, 128]
         in0: "input_A"
         operation: "Datacopy"
         unpacker: "UnpackerA"
         math_fidelity: "LoFi"
     pack:
-      - output: "output1"
-        block_tiles: [2, 4]
+      - output: "output"
+        block_size: [64, 128]
         packer: "PackUntilize"

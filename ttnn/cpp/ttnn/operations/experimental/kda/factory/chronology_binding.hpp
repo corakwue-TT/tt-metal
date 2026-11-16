@@ -5,10 +5,10 @@
 #include <initializer_list>
 #include <optional>
 #include <vector>
-#include <tt-metalium/workload/specification/program_spec.hpp>
+#include <tt-metalium/experimental/metal2_host_api/program_spec.hpp>
 #include "ttnn/metal_v2_artifacts.hpp"
 #include "ttnn/tensor/tensor.hpp"
-#include <tt-metalium/workload/run_args/program_run_args.hpp>
+#include <tt-metalium/experimental/metal2_host_api/program_run_args.hpp>
 namespace ttnn::experimental::prim::kda_factory_detail {
 // How finely chronology_workload splits the mesh into programs.
 enum class ChronologyPrograms {
@@ -28,9 +28,9 @@ inline ttnn::device_operation::MeshWorkloadArtifacts chronology_workload(
     const ttnn::MeshDevice& device,
     uint32_t sequence_parallel_axis,
     uint32_t local_rows,
-    std::initializer_list<tt::tt_metal::KernelSpecName> chronology_readers,
+    std::initializer_list<tt::tt_metal::experimental::KernelSpecName> chronology_readers,
     ChronologyPrograms programs = ChronologyPrograms::per_sp_rank) {
-    using namespace tt::tt_metal;
+    using namespace tt::tt_metal::experimental;
     TT_FATAL(sequence_parallel_axis < device.shape().dims(), "KDA: invalid sequence_parallel_axis");
     std::vector<ttnn::MeshCoordinateRange> ranges;
     if (programs == ChronologyPrograms::per_device) {
@@ -76,15 +76,17 @@ inline ttnn::device_operation::MeshWorkloadArtifacts chronology_workload(
     const ttnn::MeshDevice& device,
     uint32_t sequence_parallel_axis,
     uint32_t local_rows,
-    const tt::tt_metal::KernelSpecName& chronology_reader,
+    const tt::tt_metal::experimental::KernelSpecName& chronology_reader,
     ChronologyPrograms programs = ChronologyPrograms::per_sp_rank) {
     return chronology_workload(
         artifacts, tensor_coords, device, sequence_parallel_axis, local_rows, {chronology_reader}, programs);
 }
 
 inline void bind_chronology_channel(
-    tt::tt_metal::ProgramSpec& spec, tt::tt_metal::KernelSpec& reader, tt::tt_metal::KernelSpec& compute) {
-    using namespace tt::tt_metal;
+    tt::tt_metal::experimental::ProgramSpec& spec,
+    tt::tt_metal::experimental::KernelSpec& reader,
+    tt::tt_metal::experimental::KernelSpec& compute) {
+    using namespace tt::tt_metal::experimental;
     const DFBSpecName channel{"chronology_compute"};
     spec.dataflow_buffers.push_back(
         {.unique_id = channel, .entry_size = 32, .num_entries = 1, .data_format_metadata = tt::DataFormat::UInt32});
@@ -92,12 +94,12 @@ inline void bind_chronology_channel(
     compute.dfb_bindings.push_back(ConsumerOf(channel, "chronology_compute"));
 }
 inline void bind_chronology(
-    tt::tt_metal::ProgramSpec& spec,
-    tt::tt_metal::ProgramRunArgs& run,
+    tt::tt_metal::experimental::ProgramSpec& spec,
+    tt::tt_metal::experimental::ProgramRunArgs& run,
     const Tensor& actual_start,
-    tt::tt_metal::KernelSpec& reader,
-    tt::tt_metal::KernelSpec& compute) {
-    using namespace tt::tt_metal;
+    tt::tt_metal::experimental::KernelSpec& reader,
+    tt::tt_metal::experimental::KernelSpec& compute) {
+    using namespace tt::tt_metal::experimental;
     const TensorParamName name{"actual_start"};
     const auto& tensor = actual_start.mesh_tensor();
     spec.tensor_parameters.push_back({.unique_id = name, .spec = tensor.tensor_spec()});
@@ -107,11 +109,11 @@ inline void bind_chronology(
 }
 // Leave actual_start unbound when absent; kernels resolve it with get_token_if_present.
 inline void bind_chronology(
-    tt::tt_metal::ProgramSpec& spec,
-    tt::tt_metal::ProgramRunArgs& run,
+    tt::tt_metal::experimental::ProgramSpec& spec,
+    tt::tt_metal::experimental::ProgramRunArgs& run,
     const std::optional<Tensor>& actual_start,
-    tt::tt_metal::KernelSpec& reader,
-    tt::tt_metal::KernelSpec& compute) {
+    tt::tt_metal::experimental::KernelSpec& reader,
+    tt::tt_metal::experimental::KernelSpec& compute) {
     if (actual_start) {
         bind_chronology(spec, run, *actual_start, reader, compute);
     } else {
@@ -119,11 +121,11 @@ inline void bind_chronology(
     }
 }
 inline void bind_actual_end(
-    tt::tt_metal::ProgramSpec& spec,
-    tt::tt_metal::ProgramRunArgs& run,
+    tt::tt_metal::experimental::ProgramSpec& spec,
+    tt::tt_metal::experimental::ProgramRunArgs& run,
     const std::optional<Tensor>& actual_end,
-    tt::tt_metal::KernelSpec& reader) {
-    using namespace tt::tt_metal;
+    tt::tt_metal::experimental::KernelSpec& reader) {
+    using namespace tt::tt_metal::experimental;
     reader.compile_time_args.insert({"has_actual_end", uint32_t(actual_end.has_value())});
     // Leave the parameter unbound when absent; kernels resolve it with get_token_if_present.
     if (!actual_end) {

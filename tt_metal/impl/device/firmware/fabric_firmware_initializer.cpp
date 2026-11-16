@@ -498,8 +498,9 @@ void FabricFirmwareInitializer::configure_fabric(Device* dev, Program& fabric_pr
             msg.kernel_config().host_assigned_id() = fabric_program.get_runtime_id();
 
             auto physical_core = dev->virtual_core_from_logical_core(logical_core, core_type);
-            slow_dispatch::WriteLaunchMsgToCore(
-                *dev,
+            tt::llrt::write_launch_msg_to_core(
+                env_impl,
+                dev->id(),
                 physical_core,
                 msg,
                 go_msg,

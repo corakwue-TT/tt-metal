@@ -5,12 +5,10 @@
 from .callback import TrainerCallback
 from .sft_trainer import SFTConfig, SFTTrainer
 from .grpo_trainer import (
+    GRPOCompleter,
     GRPOConfig,
     GRPOMonitor,
     GRPOTrainer,
-    RolloutBatch,
-    RolloutSampler,
-    build_rollout_sampler,
     get_grpo_config,
 )
 from ttml.modules.lora import LoraConfig

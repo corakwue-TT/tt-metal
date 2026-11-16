@@ -5,7 +5,6 @@
 #include "move_program_factory.hpp"
 
 #include <tt-metalium/host_api.hpp>
-#include <tt-metalium/mesh_buffer.hpp>
 
 #include "ttnn/operations/data_movement/copy/device/copy_device_operation.hpp"
 #include "ttnn/operations/data_movement/copy/device/copy_device_operation_types.hpp"
@@ -36,8 +35,8 @@ void MoveProgramFactory::override_runtime_arguments(
     const std::optional<ttnn::MeshCoordinate>& /*mesh_dispatch_coordinate*/) {
     // Delegates to CopyDeviceOperation::SameMemoryConfig, whose reader/writer take their
     // buffer at slot 0; the sharding tail args are shape-derived and therefore keyed.
-    const uint32_t src_addr = tensor_args.input_tensor.mesh_buffer().address();
-    const uint32_t dst_addr = tensor_return_value.mesh_buffer().address();
+    const uint32_t src_addr = tensor_args.input_tensor.buffer()->address();
+    const uint32_t dst_addr = tensor_return_value.buffer()->address();
     for (auto& col : tt::tt_metal::GetRuntimeArgs(program, 0)) {
         for (auto& a : col) {
             if (a.size() > 0) {

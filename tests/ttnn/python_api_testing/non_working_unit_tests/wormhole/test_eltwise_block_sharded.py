@@ -320,7 +320,7 @@ def test_eltwise_identity(input_shape, dtype, dlayout, sharding_strategy, shard_
         sharding_strategy,
         shard_orientation,
         hw_as_shard_shape,
-        torch.nn.Identity(),
+        torch.identity,
         ttnn.identity,
         False,
         device,

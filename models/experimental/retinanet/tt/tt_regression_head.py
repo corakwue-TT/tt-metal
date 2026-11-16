@@ -29,6 +29,7 @@ class RetinaNetHeadOptimizer:
 retinanet_head_optimizations = {
     "optimized": RetinaNetHeadOptimizer(
         fpn0_conv_blocks={
+            "act_block_h_override": 1024,
             "shard_layout": ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             "deallocate_activation": False,
             "reallocate_halo_output": True,
@@ -36,6 +37,7 @@ retinanet_head_optimizations = {
             "enable_weights_double_buffer": True,
         },
         fpn0_final_conv={
+            "act_block_h_override": 1024,
             "shard_layout": ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             "deallocate_activation": False,
             "reallocate_halo_output": True,
@@ -43,6 +45,7 @@ retinanet_head_optimizations = {
             "enable_weights_double_buffer": True,
         },
         fpn1_conv_blocks={
+            "act_block_h_override": 256,
             "shard_layout": ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             "deallocate_activation": False,
             "reallocate_halo_output": True,
@@ -50,6 +53,7 @@ retinanet_head_optimizations = {
             "enable_weights_double_buffer": True,
         },
         fpn1_final_conv={
+            "act_block_h_override": 256,
             "shard_layout": ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             "deallocate_activation": False,
             "reallocate_halo_output": True,
@@ -57,6 +61,7 @@ retinanet_head_optimizations = {
             "enable_weights_double_buffer": True,
         },
         fpn2_conv_blocks={
+            "act_block_h_override": 256,
             "shard_layout": ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             "deallocate_activation": False,
             "reallocate_halo_output": True,
@@ -64,6 +69,7 @@ retinanet_head_optimizations = {
             "enable_weights_double_buffer": True,
         },
         fpn2_final_conv={
+            "act_block_h_override": 256,
             "shard_layout": ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             "deallocate_activation": False,
             "reallocate_halo_output": True,
@@ -71,6 +77,7 @@ retinanet_head_optimizations = {
             "enable_weights_double_buffer": True,
         },
         fpn3_conv_blocks={
+            "act_block_h_override": 256,
             "shard_layout": ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             "deallocate_activation": False,
             "reallocate_halo_output": True,
@@ -78,6 +85,7 @@ retinanet_head_optimizations = {
             "enable_weights_double_buffer": True,
         },
         fpn3_final_conv={
+            "act_block_h_override": 256,
             "shard_layout": ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             "deallocate_activation": False,
             "reallocate_halo_output": True,
@@ -85,6 +93,7 @@ retinanet_head_optimizations = {
             "enable_weights_double_buffer": True,
         },
         fpn4_conv_blocks={
+            "act_block_h_override": 32,
             "shard_layout": ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             "deallocate_activation": False,
             "reallocate_halo_output": True,
@@ -92,6 +101,7 @@ retinanet_head_optimizations = {
             "enable_weights_double_buffer": True,
         },
         fpn4_final_conv={
+            "act_block_h_override": 32,
             "shard_layout": ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             "deallocate_activation": False,
             "reallocate_halo_output": True,

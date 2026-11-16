@@ -19,7 +19,7 @@
 #include "ttnn/operations/experimental/quasar/matmul/device/config/matmul_unified_plan.hpp"
 
 using namespace tt;
-using namespace tt::tt_metal;
+using namespace tt::tt_metal::experimental;
 
 namespace ttnn::prim::qsr {
 

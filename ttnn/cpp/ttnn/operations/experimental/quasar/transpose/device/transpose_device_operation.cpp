@@ -8,7 +8,6 @@
 
 #include <tt-metalium/constants.hpp>
 #include <tt-metalium/hal.hpp>
-#include <tt-metalium/experimental/tensor_layout_apis_with_custom_alignment.hpp>
 
 using namespace tt::constants;
 using namespace tt::tt_metal;
@@ -238,7 +237,7 @@ tt::tt_metal::TensorSpec TransposeDeviceOperation::compute_output_specs(
 
     return tt::tt_metal::TensorSpec(
         output_shape,
-        tt::tt_metal::experimental::tensor_layout_from_padded_shape(
+        TensorLayout::fromPaddedShape(
             input_tensor.dtype(),
             PageConfig(input_tensor.layout()),
             output_mem_config,

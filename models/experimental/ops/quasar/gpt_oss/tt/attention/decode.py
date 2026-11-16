@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import ttnn
-from models.experimental.ops.quasar.gpt_oss.utils.general_utils import get_compute_grid_size
 
 from .config import AttentionConfig, ProgramConfig
 from .operations import apply_rope
@@ -110,7 +109,7 @@ def decode_forward(
 
     tt_k.deallocate(True)
     tt_v.deallocate(True)
-    grid_size = get_compute_grid_size(mesh_device)
+    grid_size = ttnn.CoreCoord(8, 8)
     batch_grid = ttnn.num_cores_to_corerangeset(batch_size, grid_size, row_wise=True)
 
     # Calculate padded heads (must be tile-aligned, e.g., 32)

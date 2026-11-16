@@ -24,7 +24,6 @@ void bind_concatenate_heads(nb::module_& mod) {
 
             Keyword Args:
                 memory_config: Memory Config of the output tensor, if `None` then it gets set to input_tensor.memory_config(). Defaults to `None`.
-                runtime_rows (bool): interleaved input and output only: one program serves every sequence_size, so a change in sequence_size is a program cache hit. Defaults to `False`.
 
             Returns:
                 ttnn.Tensor: the output tensor.
@@ -37,8 +36,7 @@ void bind_concatenate_heads(nb::module_& mod) {
         &ttnn::transformer::concatenate_heads,
         nb::arg("input_tensor").noconvert(),
         nb::kw_only(),
-        nb::arg("memory_config") = nb::none(),
-        nb::arg("runtime_rows") = false);
+        nb::arg("memory_config") = nb::none());
 }
 
 }  // namespace ttnn::operations::transformer

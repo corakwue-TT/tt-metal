@@ -92,7 +92,7 @@ static void RunPrograms(const std::shared_ptr<distributed::MeshDevice>& mesh_dev
         distributed::MeshWorkload workload;
         distributed::MeshCoordinateRange device_range = distributed::MeshCoordinateRange(mesh_device->shape());
 
-        Program program = CreateProgram(*mesh_device);
+        Program program = CreateProgram();
 
         CreateKernel(
             program,

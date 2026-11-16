@@ -137,7 +137,10 @@ class FpuNode:
         block.tile_id_src_a = call.in0
         block.tile_id_src_b = call.in1
         block.tile_id_dest = call.dest
-        if config.perf_run_type == PerfRunType.UNPACK_ISOLATE:
+        if config.perf_run_type in (
+            PerfRunType.UNPACK_ISOLATE,
+            PerfRunType.L1_CONGESTION,
+        ):
             return self.unpacker.perf_clear_valid(operation, config, self, block)
         return self.fpu.calculate(operation, config, self, block)
 

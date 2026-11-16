@@ -38,7 +38,7 @@ TEST_F(QuasarMeshDeviceSingleCardFixture, DmWorkerMulticast) {
 
     const CoreCoord sender_logical{0, 0};
     const CoreCoord peer_logical{1, 0};
-    const NodeCoord sender_node{0, 0};
+    const experimental::NodeCoord sender_node{0, 0};
     const CoreCoord sender_noc = this->device().worker_core_from_logical_core(sender_logical);
     const CoreCoord peer_noc = this->device().worker_core_from_logical_core(peer_logical);
 
@@ -66,10 +66,10 @@ TEST_F(QuasarMeshDeviceSingleCardFixture, DmWorkerMulticast) {
     distributed::MeshWorkload workload;
     distributed::MeshCoordinateRange device_range = distributed::MeshCoordinateRange(this->device().shape());
 
-    const KernelSpecName SENDER{"worker_multicast_pair"};
-    ProgramSpec spec{
+    const experimental::KernelSpecName SENDER{"worker_multicast_pair"};
+    experimental::ProgramSpec spec{
         .name = "dm_worker_multicast",
-        .kernels = {KernelSpec{
+        .kernels = {experimental::KernelSpec{
             .unique_id = SENDER,
             .source = OVERRIDE_KERNEL_PREFIX "tests/tt_metal/tt_metal/test_kernels/dataflow/worker_multicast_pair.cpp",
             .num_threads = 1,
@@ -85,20 +85,20 @@ TEST_F(QuasarMeshDeviceSingleCardFixture, DmWorkerMulticast) {
                          "peer_x",
                          "peer_y"},
                 },
-            .hw_config = DataMovementHardwareConfig{},
+            .hw_config = experimental::DataMovementHardwareConfig{},
         }},
-        .work_units = {WorkUnitSpec{
+        .work_units = {experimental::WorkUnitSpec{
             .name = "main",
             .kernels = {SENDER},
             .target_nodes = sender_node,
         }},
     };
-    Program program = tt_metal::experimental::MakeProgramFromSpec(this->device(), spec);
+    Program program = experimental::MakeProgramFromSpec(this->device(), spec);
 
-    ProgramRunArgs params;
-    params.kernel_run_args.push_back(ProgramRunArgs::KernelRunArgs{
+    experimental::ProgramRunArgs params;
+    params.kernel_run_args.push_back(experimental::ProgramRunArgs::KernelRunArgs{
         .kernel = SENDER,
-        .runtime_arg_values = MakeRuntimeArgsForSingleNode(
+        .runtime_arg_values = experimental::MakeRuntimeArgsForSingleNode(
             sender_node,
             {{"src_addr", src_addr},
              {"dst_addr_unicast_rect", dst_addr_unicast_rect},
@@ -108,7 +108,7 @@ TEST_F(QuasarMeshDeviceSingleCardFixture, DmWorkerMulticast) {
              {"self_y", static_cast<uint32_t>(sender_noc.y)},
              {"peer_x", static_cast<uint32_t>(peer_noc.x)},
              {"peer_y", static_cast<uint32_t>(peer_noc.y)}})});
-    tt_metal::experimental::SetProgramRunArgs(program, params);
+    experimental::SetProgramRunArgs(program, params);
 
     workload.add_program(device_range, std::move(program));
     distributed::EnqueueMeshWorkload(cq, workload, true);
