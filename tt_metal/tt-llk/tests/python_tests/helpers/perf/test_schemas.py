@@ -496,6 +496,30 @@ PERF_TEST_SCHEMAS = {
         "aliases": {"formats.sfpu_math": "formats.sfpu_src"},
         "test_name_aliases": {"perf_math_matmul": "perf_math_matmul"},
     },
+    "perf_rmsnorm_clear_product_tile": {
+        "version": 1,
+        "columns": [
+            "capacity",
+            "dest_acc",
+            "dest_sync",
+            "dest_tiles",
+            "formats.input_A",
+            "formats.input_B",
+            "formats.output",
+            "formats.register_A",
+            "formats.register_B",
+            "formats.sfpu_dst",
+            "formats.sfpu_src",
+            "loop_factor",
+            "marker",
+            "tile_cnt",
+            "unpack_to_dest",
+        ],
+        "aliases": {},
+        "test_name_aliases": {
+            "perf_rmsnorm_clear_product_tile": "perf_rmsnorm_clear_product_tile"
+        },
+    },
     "perf_mul_reduce_scalar_chunked": {
         "version": 1,
         "columns": [
