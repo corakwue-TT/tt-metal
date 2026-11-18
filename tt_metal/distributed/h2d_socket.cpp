@@ -15,6 +15,7 @@
 #include "tt_metal/distributed/pcie_core_writer.hpp"
 #include <tt-metalium/experimental/sockets/shm_resource_tracker.hpp>
 #include <tt-umd/driver_atomics.hpp>
+#include <tt-umd/chip_helpers/host_cache.hpp>
 #include "tt_metal/impl/buffers/h2d_socket_internal.hpp"
 #include "impl/context/metal_context.hpp"
 #include "impl/context/metal_env_impl.hpp"
@@ -75,6 +76,25 @@ void H2DSocketImpl::enable_mock_flow_control(const MeshDevice& mesh_device) {
     bytes_acked_ptr_ = &bytes_sent_;
 }
 
+namespace {
+
+// Cache maintenance for hosts whose CPU caches are not snooped by inbound PCIe DMA (e.g. SpacemiT K3,
+// riscv64). tt::umd::host_cache folds to nothing where it is not needed (x86, coherent hosts, and
+// non-coherent hosts using uncached sysmem, where tt-metal does not pin these buffers at all).
+//
+// The device writes bytes_acked and reads the DEVICE_PULL data ring. A host write to any byte of the
+// cache block holding bytes_acked would let a later write-back of that block (including the
+// cbo.flush in invalidate_range) overwrite the device's value, so nothing the host writes may share
+// that block: the connector state starts on its own block, and the data ring must end on one.
+constexpr size_t k_h2d_host_cache_block_bytes = 64;
+
+uint32_t load_bytes_acked(const uint32_t* p) {
+    tt::umd::host_cache::invalidate_range(p, sizeof(uint32_t));
+    return *reinterpret_cast<const volatile uint32_t*>(p);
+}
+
+}  // namespace
+
 H2DSocketImpl::PinnedBufferInfo H2DSocketImpl::init_bytes_acked_buffer(
     const std::shared_ptr<MeshDevice>& mesh_device,
     const MeshCoordinateRangeSet& device_range,
@@ -87,7 +107,8 @@ H2DSocketImpl::PinnedBufferInfo H2DSocketImpl::init_bytes_acked_buffer(
     // Place the struct immediately after the pinned region, aligned up to its
     // own alignment requirement so the reinterpret_cast<> in connect() is
     // well-defined.
-    connector_state_offset_ = static_cast<uint32_t>(align(sizeof(uint32_t), alignof(HDSocketConnectorState)));
+    connector_state_offset_ = static_cast<uint32_t>(
+        align(sizeof(uint32_t), std::max(alignof(HDSocketConnectorState), k_h2d_host_cache_block_bytes)));
     TT_FATAL(
         page_size >= connector_state_offset_ + sizeof(HDSocketConnectorState),
         "System page size too small to host HDSocketConnectorState.");
@@ -96,7 +117,9 @@ H2DSocketImpl::PinnedBufferInfo H2DSocketImpl::init_bytes_acked_buffer(
     TT_FATAL(
         reinterpret_cast<uintptr_t>(aligned_ptr) % pcie_alignment == 0,
         "System Memory Allocation Error: Bytes_acked buffer must be aligned to the PCIe alignment.");
-    // NamedShm::create zero-initializes the region; no explicit memset needed.
+    // NamedShm::create zero-initializes the region; no explicit memset needed. Write the zeroed line back
+    // before the device can write bytes_acked, so a dirty zero line is never evicted over it later.
+    tt::umd::host_cache::clean_range(aligned_ptr, sizeof(uint32_t));
     host_buffer_ = std::shared_ptr<uint32_t[]>(static_cast<uint32_t*>(aligned_ptr), [](uint32_t*) {});
     tt::tt_metal::HostBuffer bytes_acked_buffer_view(
         ttsl::Span<uint32_t>(host_buffer_.get(), 1), tt::tt_metal::MemoryPin(host_buffer_));
@@ -128,13 +151,22 @@ H2DSocketImpl::PinnedBufferInfo H2DSocketImpl::init_host_data_buffer(
     // aligned up to its own alignment requirement so the reinterpret_cast<> in
     // connect() is well-defined. The pinned HostBuffer view below still spans
     // only [data | bytes_acked], so the device never touches the state struct.
-    connector_state_offset_ = align(host_buffer_size_bytes, alignof(HDSocketConnectorState));
+    connector_state_offset_ =
+        align(host_buffer_size_bytes, std::max(alignof(HDSocketConnectorState), k_h2d_host_cache_block_bytes));
+    TT_FATAL(
+        !tt::umd::host_cache::available() || fifo_size_ % k_h2d_host_cache_block_bytes == 0,
+        "H2D DEVICE_PULL FIFO size {} must be a multiple of {} B on hosts that maintain caches for PCIe DMA, so the "
+        "host-written data ring never shares a cache block with the device-written bytes_acked counter.",
+        fifo_size_,
+        k_h2d_host_cache_block_bytes);
     size_t alloc_size = align(connector_state_offset_ + sizeof(HDSocketConnectorState), page_size);
     shm_ = std::make_unique<NamedShm>(NamedShm::create(shm_name, alloc_size));
     void* aligned_ptr = shm_->ptr();
     TT_FATAL(
         reinterpret_cast<uintptr_t>(aligned_ptr) % pcie_alignment == 0,
         "System Memory Allocation Error: Host data buffer must be aligned to the PCIe alignment.");
+    // As in init_bytes_acked_buffer: write the zeroed [data | bytes_acked] lines back before pinning.
+    tt::umd::host_cache::clean_range(aligned_ptr, host_buffer_size_bytes);
     host_buffer_ = std::shared_ptr<uint32_t[]>(static_cast<uint32_t*>(aligned_ptr), [](uint32_t*) {});
 
     tt::tt_metal::HostBuffer host_buffer_view(
@@ -769,7 +801,7 @@ void H2DSocketImpl::reserve_bytes(uint32_t num_bytes) {
         ecc_watch.poll();
         advance_h2d_simulator_socket_device(mesh_device_, recv_core_.device_coord);
         tt_driver_atomics::mfence();
-        volatile uint32_t bytes_acked_value = bytes_acked_ptr_[0];
+        volatile uint32_t bytes_acked_value = load_bytes_acked(bytes_acked_ptr_);
         bytes_free = fifo_size_ - (bytes_sent_ - bytes_acked_value);
         bytes_acked_ = bytes_acked_value;
     }
@@ -789,7 +821,7 @@ bool H2DSocketImpl::has_space(std::optional<uint32_t> num_bytes_to_check) {
     }
 
     tt_driver_atomics::mfence();
-    volatile uint32_t bytes_acked_value = bytes_acked_ptr_[0];
+    volatile uint32_t bytes_acked_value = load_bytes_acked(bytes_acked_ptr_);
     bytes_free = fifo_size_ - (bytes_sent_ - bytes_acked_value);
     bytes_acked_ = bytes_acked_value;
     return bytes_free >= num_bytes;
@@ -806,7 +838,7 @@ bool H2DSocketImpl::acked_past(uint32_t watermark) {
         return true;
     }
     tt_driver_atomics::mfence();
-    volatile uint32_t bytes_acked_value = bytes_acked_ptr_[0];
+    volatile uint32_t bytes_acked_value = load_bytes_acked(bytes_acked_ptr_);
     bytes_acked_ = bytes_acked_value;
     return bytes_sent_ - bytes_acked_ <= bytes_since_watermark;
 }
@@ -886,7 +918,7 @@ void H2DSocketImpl::barrier(std::optional<uint32_t> timeout_ms) {
         }
     };
     refresh_connector_write_state();
-    volatile uint32_t bytes_acked_value = bytes_acked_ptr_[0];
+    volatile uint32_t bytes_acked_value = load_bytes_acked(bytes_acked_ptr_);
     auto start_time = std::chrono::high_resolution_clock::now();
     tt::tt_metal::internal::L1EccHaltWatch ecc_watch(mesh_device_);
     while (bytes_sent_ - bytes_acked_value != 0) {
@@ -894,7 +926,7 @@ void H2DSocketImpl::barrier(std::optional<uint32_t> timeout_ms) {
         refresh_connector_write_state();
         advance_h2d_simulator_socket_device(mesh_device_, recv_core_.device_coord);
         tt_driver_atomics::mfence();
-        bytes_acked_value = bytes_acked_ptr_[0];
+        bytes_acked_value = load_bytes_acked(bytes_acked_ptr_);
         if (timeout_ms.has_value()) {
             auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                   std::chrono::high_resolution_clock::now() - start_time)
@@ -926,6 +958,7 @@ void H2DSocketImpl::write(void* data, uint32_t num_pages) {
     } else {
         uint32_t* data_ptr = host_buffer_.get() + (write_ptr_ / sizeof(uint32_t));
         std::memcpy(data_ptr, data, num_bytes);
+        tt::umd::host_cache::clean_range(data_ptr, num_bytes);  // the device pulls these bytes
         this->count_staged_bytes(num_bytes);
     }
     this->push_bytes(num_bytes);
@@ -942,7 +975,7 @@ bool H2DSocketImpl::try_write(void* data, uint32_t num_pages) {
     uint32_t bytes_free = fifo_size_ - (bytes_sent_ - bytes_acked_);
     if (bytes_free < num_bytes) {
         tt_driver_atomics::mfence();
-        volatile uint32_t bytes_acked_value = bytes_acked_ptr_[0];
+        volatile uint32_t bytes_acked_value = load_bytes_acked(bytes_acked_ptr_);
         bytes_acked_ = bytes_acked_value;
         bytes_free = fifo_size_ - (bytes_sent_ - bytes_acked_);
         if (bytes_free < num_bytes) {
@@ -959,6 +992,7 @@ bool H2DSocketImpl::try_write(void* data, uint32_t num_pages) {
     } else {
         uint32_t* data_ptr = host_buffer_.get() + (write_ptr_ / sizeof(uint32_t));
         std::memcpy(data_ptr, data, num_bytes);
+        tt::umd::host_cache::clean_range(data_ptr, num_bytes);  // the device pulls these bytes
         this->count_staged_bytes(num_bytes);
     }
     this->push_bytes(num_bytes);
@@ -971,7 +1005,7 @@ uint32_t H2DSocketImpl::try_stage(const uint8_t* const* pages, uint32_t num_page
     TT_FATAL(page_size_ > 0, "Page size must be set before writing.");
     if ((fifo_size_ - (bytes_sent_ - bytes_acked_)) / page_size_ < num_pages) {
         tt_driver_atomics::mfence();
-        volatile uint32_t bytes_acked_value = bytes_acked_ptr_[0];
+        volatile uint32_t bytes_acked_value = load_bytes_acked(bytes_acked_ptr_);
         bytes_acked_ = bytes_acked_value;
     }
     uint32_t staged = 0;
@@ -999,7 +1033,9 @@ uint32_t H2DSocketImpl::try_stage(const uint8_t* const* pages, uint32_t num_page
                 tt_driver_atomics::sfence();
             }
         } else {
-            gather(reinterpret_cast<uint8_t*>(host_buffer_.get()) + write_ptr_);
+            uint8_t* dst = reinterpret_cast<uint8_t*>(host_buffer_.get()) + write_ptr_;
+            gather(dst);
+            tt::umd::host_cache::clean_range(dst, num_bytes);  // the device pulls these bytes
             this->count_staged_bytes(num_bytes);
         }
         this->push_bytes(num_bytes);
@@ -1097,7 +1133,7 @@ std::unique_ptr<H2DSocketImpl> H2DSocketImpl::connect_from_descriptor(const HDSo
     socket->fifo_curr_size_ = socket->connector_state_->fifo_curr_size;
     socket->bytes_sent_ = socket->connector_state_->bytes_sent;
     socket->write_ptr_ = socket->connector_state_->write_ptr;
-    socket->bytes_acked_ = socket->bytes_acked_ptr_[0];
+    socket->bytes_acked_ = load_bytes_acked(socket->bytes_acked_ptr_);
 
     socket->notify_receiver();
 
