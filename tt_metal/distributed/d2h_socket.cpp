@@ -713,7 +713,16 @@ void D2HSocket::set_page_size(uint32_t page_size) {
             if (mock_flow_control_enabled_) {
                 simulate_device_sent(bytes_adjustment);
             }
-            volatile uint32_t bytes_sent_value = using_hugepage_ ? *hugepage_bytes_sent_host_ptr_ : load_device_word(bytes_sent_ptr_);
+            uint32_t bytes_sent_value;
+            if (using_hugepage_) {
+                // Same writeback+invalidate as the other hugepage reads; this loop was missing it.
+                host_cache_flush_line(
+                    const_cast<void*>(reinterpret_cast<const volatile void*>(hugepage_bytes_sent_host_ptr_)));
+                host_cache_flush_barrier();
+                bytes_sent_value = *hugepage_bytes_sent_host_ptr_;
+            } else {
+                bytes_sent_value = load_device_word(bytes_sent_ptr_);
+            }
             bytes_recv = bytes_sent_value - bytes_acked_;
             bytes_sent_ = bytes_sent_value;
         }
