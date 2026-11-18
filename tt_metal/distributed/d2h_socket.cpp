@@ -14,6 +14,7 @@
 #include "tt_metal/distributed/pcie_core_writer.hpp"
 #include <tt-metalium/experimental/sockets/shm_resource_tracker.hpp>
 #include <tt-umd/driver_atomics.hpp>
+#include <tt-umd/chip_helpers/host_cache.hpp>
 #include "tt_metal/impl/buffers/d2h_socket_internal.hpp"
 #include "impl/context/metal_context.hpp"
 #include "tt_metal/llrt/tt_cluster.hpp"
@@ -159,6 +160,16 @@ void host_cache_flush_range(const void* start, uint32_t bytes, uint32_t line_byt
     }
 }
 
+// Pinned-path counterpart of the hugepage clflush above, for hosts whose root complex does not snoop
+// inbound PCIe DMA (e.g. SpacemiT K3, riscv64). tt::umd::host_cache folds to nothing where it is not
+// needed. The pinned buffer is cacheable, so every host read of device-written bytes (bytes_sent and
+// the FIFO) must invalidate first, and nothing host-written may share a cache block with them.
+constexpr size_t k_max_host_cache_block_bytes = 64;
+static inline uint32_t load_device_word(const uint32_t* p) {
+    tt::umd::host_cache::invalidate_range(p, sizeof(uint32_t));
+    return *reinterpret_cast<const volatile uint32_t*>(p);
+}
+
 // Drive the device forward one step from a host socket credit-wait loop. Simulator co-steps the umd
 // clock; emule pumps the parked fiber scheduler so a kernel blocked on this host-fed socket resumes.
 void advance_d2h_simulator_socket_device(MeshDevice* mesh_device, const MeshCoordinate& device_coord) {
@@ -195,7 +206,8 @@ D2HSocket::PinnedBufferInfo D2HSocket::init_host_buffer(
     // to its own alignment requirement so the reinterpret_cast<> in connect() is
     // well-defined. The pinned HostBuffer view below still spans only
     // [data | bytes_sent], so the device never touches the state struct.
-    connector_state_offset_ = align(total_buffer_size_bytes, alignof(HDSocketConnectorState));
+    connector_state_offset_ =
+        align(total_buffer_size_bytes, std::max(alignof(HDSocketConnectorState), k_max_host_cache_block_bytes));
     size_t alloc_size = align(connector_state_offset_ + sizeof(HDSocketConnectorState), page_size);
 
     void* aligned_ptr = nullptr;
@@ -230,6 +242,7 @@ D2HSocket::PinnedBufferInfo D2HSocket::init_host_buffer(
         reinterpret_cast<uintptr_t>(aligned_ptr) % pcie_alignment == 0,
         "System Memory Allocation Error: D2H socket buffer must be aligned to the PCIe alignment.");
     bytes_sent_ptr_ = host_buffer_.get() + (fifo_size_ / sizeof(uint32_t));
+    tt::umd::host_cache::clean_range(aligned_ptr, alloc_size);
 
     tt::tt_metal::HostBuffer host_buffer_view(
         ttsl::Span<uint32_t>(host_buffer_.get(), total_buffer_size_words), tt::tt_metal::MemoryPin(host_buffer_));
@@ -700,7 +713,7 @@ void D2HSocket::set_page_size(uint32_t page_size) {
             if (mock_flow_control_enabled_) {
                 simulate_device_sent(bytes_adjustment);
             }
-            volatile uint32_t bytes_sent_value = using_hugepage_ ? *hugepage_bytes_sent_host_ptr_ : bytes_sent_ptr_[0];
+            volatile uint32_t bytes_sent_value = using_hugepage_ ? *hugepage_bytes_sent_host_ptr_ : load_device_word(bytes_sent_ptr_);
             bytes_recv = bytes_sent_value - bytes_acked_;
             bytes_sent_ = bytes_sent_value;
         }
@@ -726,7 +739,7 @@ bool D2HSocket::has_data(std::optional<uint32_t> num_bytes_to_check) {
         num_bytes += fifo_size_ - fifo_curr_size_;
     }
     tt_driver_atomics::mfence();
-    volatile uint32_t bytes_sent_value = bytes_sent_ptr_[0];
+    volatile uint32_t bytes_sent_value = load_device_word(bytes_sent_ptr_);
     bytes_sent_ = bytes_sent_value;
     uint32_t bytes_recv = bytes_sent_value - bytes_acked_;
     return bytes_recv >= num_bytes;
@@ -754,7 +767,7 @@ void D2HSocket::wait_for_bytes(uint32_t num_bytes) {
             bytes_sent_ = bytes_sent_value;
         } else {
             tt_driver_atomics::mfence();
-            volatile uint32_t bytes_sent_value = bytes_sent_ptr_[0];
+            volatile uint32_t bytes_sent_value = load_device_word(bytes_sent_ptr_);
             bytes_recv = bytes_sent_value - bytes_acked_;
             bytes_sent_ = bytes_sent_value;
         }
@@ -802,7 +815,7 @@ uint32_t D2HSocket::discard_pending_pages() {
         bytes_sent_value = *hugepage_bytes_sent_host_ptr_;
     } else {
         tt_driver_atomics::mfence();
-        bytes_sent_value = bytes_sent_ptr_[0];
+        bytes_sent_value = load_device_word(bytes_sent_ptr_);
     }
     bytes_sent_ = bytes_sent_value;
     uint32_t bytes_recv = bytes_sent_value - bytes_acked_;
@@ -847,7 +860,7 @@ void D2HSocket::barrier(std::optional<uint32_t> timeout_ms) {
             return *hugepage_bytes_sent_host_ptr_;
         }
         tt_driver_atomics::mfence();
-        return bytes_sent_ptr_[0];
+        return load_device_word(bytes_sent_ptr_);
     };
 
     refresh_connector_read_state();
@@ -899,6 +912,9 @@ void D2HSocket::read_available(void* data, uint32_t num_bytes, bool notify_sende
         host_cache_flush_range(src, head_bytes, line_bytes);
         host_cache_flush_range(base, tail_bytes, line_bytes);
         host_cache_flush_barrier();
+    } else {
+        tt::umd::host_cache::invalidate_range(src, head_bytes);
+        tt::umd::host_cache::invalidate_range(base, tail_bytes);
     }
     std::memcpy(data, src, head_bytes);
     if (tail_bytes > 0) {
@@ -928,7 +944,7 @@ bool D2HSocket::try_read_impl(void* data, uint32_t num_pages, bool notify_sender
         bytes_sent_value = *hugepage_bytes_sent_host_ptr_;
     } else {
         tt_driver_atomics::mfence();
-        bytes_sent_value = bytes_sent_ptr_[0];
+        bytes_sent_value = load_device_word(bytes_sent_ptr_);
     }
     bytes_sent_ = bytes_sent_value;
     if (bytes_sent_value - bytes_acked_ < bytes_required) {
@@ -955,6 +971,7 @@ uint32_t D2HSocket::bytes_sent() const {
         host_cache_flush_barrier();
         return *hugepage_bytes_sent_host_ptr_;
     }
+    tt::umd::host_cache::invalidate_range(bytes_sent_ptr_, sizeof(uint32_t));
     return std::atomic_ref<uint32_t>(*bytes_sent_ptr_).load(std::memory_order_acquire);
 }
 
@@ -968,7 +985,7 @@ uint32_t D2HSocket::pages_available() {
         bytes_sent_value = *hugepage_bytes_sent_host_ptr_;
     } else {
         tt_driver_atomics::mfence();
-        bytes_sent_value = bytes_sent_ptr_[0];
+        bytes_sent_value = load_device_word(bytes_sent_ptr_);
     }
     bytes_sent_ = bytes_sent_value;
     uint32_t bytes_recv = bytes_sent_value - bytes_acked_;
@@ -1071,7 +1088,7 @@ std::unique_ptr<D2HSocket> D2HSocket::connect_from_descriptor(const HDSocketDesc
     socket->read_ptr_ = socket->connector_state_->read_ptr;
     // bytes_sent_ is the cached copy of the device-written counter that already
     // lives in SHM. Read it live so wait_for_bytes() sees fresh data immediately.
-    socket->bytes_sent_ = socket->bytes_sent_ptr_[0];
+    socket->bytes_sent_ = load_device_word(socket->bytes_sent_ptr_);
 
     // Reconcile the device-side bytes_acked with the restored SHM value. The
     // previous driver process may have died between pop_bytes (SHM flushed)
